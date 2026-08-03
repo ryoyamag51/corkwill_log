@@ -3,7 +3,7 @@ export default function Home() {
     <main className="site-shell">
       <section className="welcome-card" aria-labelledby="site-title">
         <p className="eyebrow">A place to keep things close</p>
-        <h1 id="site-title">corkwill</h1>
+        <h1 id="site-title">CorkWill</h1>
         <p className="intro">
           Simple notes, held together in one warm little space.
         </p>
