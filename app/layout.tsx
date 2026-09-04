@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://corkwill.ryoyamag51.chatgpt.site"),
+  metadataBase: new URL("https://corkwill-log.ryoyamag51.workers.dev"),
   title: "CorkWill Log · A clearer way to close the day",
   description: "A quiet daily log that turns a few simple answers into a clear score and useful patterns over time.",
   alternates: { canonical: "/" },

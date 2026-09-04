@@ -35,6 +35,8 @@ node --test tests/rendered-html.test.mjs tests/scoring.test.mjs
 
 The personal release runs as a native Cloudflare Worker with static assets and a D1 database. Worker-level Cloudflare Access protects every route, and the Worker validates the signed Access identity before creating the matching CorkWill Log profile and starter rubric on first use.
 
+Personal URL: `https://corkwill-log.ryoyamag51.workers.dev`
+
 ```bash
 pnpm exec wrangler d1 migrations apply corkwill-log --remote
 pnpm run deploy:cloudflare
