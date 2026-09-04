@@ -8,7 +8,9 @@
   "preview_urls": false,
   "vars": {
     "APP_ENV": "production",
-    "PRIVATE_MODE": "true"
+    "PRIVATE_MODE": "true",
+    "ACCESS_TEAM_DOMAIN": "https://square-bonus-81ca.cloudflareaccess.com",
+    "ACCESS_AUD": "24a32ac1fbea4bbfcde750e745927aba487081cb1ca2b481d729af48e1af4ce1"
   },
   "d1_databases": [
     {
