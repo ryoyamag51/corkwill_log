@@ -2,7 +2,7 @@ export type Locale = "en" | "ja";
 
 export type RecordStatus = "draft" | "completed" | "missed";
 
-export type SaveState = "saved" | "saving" | "offline" | "error";
+export type SaveState = "saved" | "saving" | "offline" | "needs-attention" | "error";
 
 export type Outcome = {
   id: string;

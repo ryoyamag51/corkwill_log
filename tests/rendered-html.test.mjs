@@ -25,6 +25,7 @@ async function harness() {
       scriptPath: "dist/server/index.js",
       compatibilityDate: "2026-05-15",
       compatibilityFlags: ["nodejs_compat"],
+      bindings: { APP_ENV: "test", PRIVATE_MODE: "false" },
       d1Databases: { DB: "corkwill-log-test" },
       assets: {
         directory: "dist/client",
@@ -116,7 +117,7 @@ test("the validated build includes Log, onboarding, and storage compatibility", 
   assert.match(serverSource, /CorkWill Log サインインコード/);
   assert.match(serverSource, /zl_session/);
   assert.match(serverSource, /CorkWill Log sign-in code/);
-  assert.match(serverSource, /oai-authenticated-user-id/);
+  assert.match(serverSource, /x-corkwill-user-id/);
   assert.match(source, /effectiveDate/);
   assert.match(source, /syncPendingMutations/);
   assert.doesNotMatch(source, /const TODAY = "2026-08-02"/);

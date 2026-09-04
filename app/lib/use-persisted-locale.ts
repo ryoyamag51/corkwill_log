@@ -22,7 +22,7 @@ function subscribeToLocale(callback: () => void): () => void {
 }
 
 export function usePersistedLocale(): [Locale, (locale: Locale) => void] {
-  const locale = useSyncExternalStore(subscribeToLocale, localeSnapshot, () => "en");
+  const locale = useSyncExternalStore(subscribeToLocale, localeSnapshot, (): Locale => "en");
   const setLocale = useCallback((next: Locale) => {
     window.localStorage.setItem(localeStorageKey, next);
     window.dispatchEvent(new Event(localeChangeEvent));

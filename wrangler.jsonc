@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "corkwill-log",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-05-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "APP_ENV": "production",
+    "PRIVATE_MODE": "true"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "corkwill-log",
+      "database_id": "7d1d0858-bd35-4db3-8559-f845389d5acf",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "images": {
+    "binding": "IMAGES"
+  },
+  "assets": {
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}

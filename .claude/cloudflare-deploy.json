@@ -1,0 +1,9 @@
+{
+  "type": "workers",
+  "projectName": "corkwill-log",
+  "method": "wrangler-cli",
+  "accountId": "04ae480abc15ee97ac403575593e8b7f",
+  "domains": [],
+  "notes": "Build with pnpm build, apply D1 migrations from the root wrangler.jsonc, then deploy the generated dist/server/wrangler.json. Worker-level Cloudflare Access protects the personal release.",
+  "verifiedDate": "2026-09-04"
+}

@@ -101,37 +101,37 @@ function userFromRow(row: UserRow): AuthenticatedUser {
   };
 }
 
-async function siteAuthenticatedUser(request: Request): Promise<AuthenticatedUser | null> {
-  const siteUserId = request.headers.get("oai-authenticated-user-id")?.trim();
-  const email = normalizedEmail(request.headers.get("oai-authenticated-user-email"));
-  if (!siteUserId || !validEmail(email)) return null;
+async function platformAuthenticatedUser(request: Request): Promise<AuthenticatedUser | null> {
+  const platformUserId = request.headers.get("x-corkwill-user-id")?.trim();
+  const email = normalizedEmail(request.headers.get("x-corkwill-user-email"));
+  if (!platformUserId || !validEmail(email)) return null;
 
   const db = database();
   const existing = await db.prepare(
     "SELECT id, email, locale, timezone, cutoff_hour FROM users WHERE id = ? OR email = ? ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END LIMIT 1",
-  ).bind(siteUserId, email, siteUserId).first<UserRow>();
+  ).bind(platformUserId, email, platformUserId).first<UserRow>();
   if (existing) return userFromRow(existing);
 
   const now = Date.now();
   const starter = createStarterRubric();
-  const rubricId = `${siteUserId}-rubric-1`;
+  const rubricId = `${platformUserId}-rubric-1`;
   await db.batch([
     db.prepare(
       "INSERT OR IGNORE INTO users (id, email, locale, timezone, cutoff_hour, created_at, updated_at) VALUES (?, ?, 'en', 'UTC', 5, ?, ?)",
-    ).bind(siteUserId, email, now, now),
+    ).bind(platformUserId, email, now, now),
     db.prepare(
       "INSERT OR IGNORE INTO rubric_versions (id, user_id, version_number, minimum_score, config_json, effective_from, created_at) VALUES (?, ?, 1, ?, ?, ?, ?)",
-    ).bind(rubricId, siteUserId, starter.minimumScore, JSON.stringify(starter), new Date().toISOString().slice(0, 10), now),
+    ).bind(rubricId, platformUserId, starter.minimumScore, JSON.stringify(starter), new Date().toISOString().slice(0, 10), now),
   ]);
   const created = await db.prepare(
     "SELECT id, email, locale, timezone, cutoff_hour FROM users WHERE id = ? LIMIT 1",
-  ).bind(siteUserId).first<UserRow>();
+  ).bind(platformUserId).first<UserRow>();
   return created ? userFromRow(created) : null;
 }
 
 export async function authenticatedUser(request: Request): Promise<AuthenticatedUser | null> {
-  const siteUser = await siteAuthenticatedUser(request);
-  if (siteUser) return siteUser;
+  const platformUser = await platformAuthenticatedUser(request);
+  if (platformUser) return platformUser;
 
   const token = readCookie(request, "zl_session");
   if (!token) return null;
