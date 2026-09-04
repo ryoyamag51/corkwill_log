@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { copy } from "../lib/locales";
-import { enqueueMutation, readLocalDraft, saveLocalDraft } from "../lib/offline";
+import { enqueueMutation, readLocalDraft, readMutationQueue, removeMutation, saveLocalDraft } from "../lib/offline";
+import type { MutationPayload } from "../lib/offline";
 import {
   answeredCount,
   cloneRubric,
@@ -35,7 +36,6 @@ type View = "today" | "history" | "settings";
 type SettingsTab = "scoring" | "levels" | "profile" | "data";
 type AuthMode = "demo" | "signed-in";
 
-const TODAY = "2026-08-02";
 const starter = createStarterRubric();
 
 const initialAnswers: Answers = {
@@ -75,6 +75,44 @@ function displayLongDate(date: string, locale: Locale): string {
   }).format(new Date(`${date}T12:00:00`));
 }
 
+function effectiveDate(timezone: string, cutoffHour: number, now = new Date()): string {
+  const shifted = new Date(now.getTime() - cutoffHour * 60 * 60 * 1000);
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(shifted);
+    const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${value.year}-${value.month}-${value.day}`;
+  } catch {
+    return shifted.toISOString().slice(0, 10);
+  }
+}
+
+async function syncPendingMutations(): Promise<"saved" | "offline" | "needs-attention"> {
+  if (!navigator.onLine) return "offline";
+  const mutations = await readMutationQueue();
+  if (mutations.length === 0) return "saved";
+  try {
+    const response = await fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mutations }),
+    });
+    if (!response.ok) return "needs-attention";
+    const payload = await response.json() as {
+      applied?: Array<{ mutationId?: string }>;
+      conflicts?: Array<{ mutationId?: string }>;
+    };
+    await Promise.all((payload.applied ?? []).flatMap((item) => item.mutationId ? [removeMutation(item.mutationId)] : []));
+    return (payload.conflicts?.length ?? 0) > 0 ? "needs-attention" : "saved";
+  } catch {
+    return navigator.onLine ? "needs-attention" : "offline";
+  }
+}
+
 function icon(name: "today" | "history" | "settings" | "check" | "arrow") {
   return <span aria-hidden="true" className={`nav-icon nav-icon-${name}`}>{name === "today" ? "●" : name === "history" ? "↗" : name === "settings" ? "⚙" : name === "check" ? "✓" : "→"}</span>;
 }
@@ -99,6 +137,7 @@ export default function CorkWillLogPage() {
   const [toast, setToast] = useState("");
 
   const t = copy[locale] as typeof copy.en;
+  const currentDate = useMemo(() => effectiveDate(timezone, cutoffHour), [timezone, cutoffHour]);
   const currentScore = Math.max(rubric.minimumScore, Math.min(100, scoreAnswers(rubric, answers)));
   const currentEvaluation = evaluationForScore(rubric, currentScore);
   const answered = answeredCount(rubric, answers);
@@ -106,10 +145,10 @@ export default function CorkWillLogPage() {
   const validation = useMemo(() => validateRubric(draftRubric), [draftRubric]);
 
   useEffect(() => {
-    void readLocalDraft(TODAY).then((draft) => {
+    void readLocalDraft(currentDate).then((draft) => {
       if (draft?.answers) setAnswers(draft.answers);
     }).catch(() => undefined);
-  }, []);
+  }, [currentDate]);
 
   useEffect(() => {
     void fetch("/api/me").then(async (response) => {
@@ -133,7 +172,7 @@ export default function CorkWillLogPage() {
 
   useEffect(() => {
     if (authMode !== "signed-in") return;
-    void Promise.all([fetch("/api/rubric"), fetch(`/api/today?date=${TODAY}`), fetch("/api/history?days=90")]).then(async ([rubricResponse, todayResponse, historyResponse]) => {
+    void Promise.all([fetch("/api/rubric"), fetch(`/api/today?date=${currentDate}`), fetch("/api/history?days=90")]).then(async ([rubricResponse, todayResponse, historyResponse]) => {
       if (rubricResponse.ok) {
         const payload = await rubricResponse.json() as { rubric?: Rubric };
         if (payload.rubric) {
@@ -143,16 +182,22 @@ export default function CorkWillLogPage() {
       }
       if (todayResponse.ok) {
         const payload = await todayResponse.json() as { record?: DailyRecord | null };
-        if (payload.record) {
-          setAnswers(payload.record.answers);
-          setRecordStatus(payload.record.status === "completed" ? "completed" : "draft");
-        }
+        setAnswers(payload.record?.answers ?? {});
+        setRecordStatus(payload.record?.status === "completed" ? "completed" : "draft");
       }
       if (historyResponse.ok) {
         const payload = await historyResponse.json() as { records?: DailyRecord[] };
-        if (payload.records?.length) setHistory(payload.records);
+        setHistory(payload.records ?? []);
       }
+      setSaveState(await syncPendingMutations());
     }).catch(() => undefined);
+  }, [authMode, currentDate]);
+
+  useEffect(() => {
+    if (authMode !== "signed-in") return;
+    const sync = () => { void syncPendingMutations().then(setSaveState); };
+    window.addEventListener("online", sync);
+    return () => window.removeEventListener("online", sync);
   }, [authMode]);
 
   useEffect(() => {
@@ -172,9 +217,10 @@ export default function CorkWillLogPage() {
     setSaveState("saving");
     const updatedAt = new Date().toISOString();
     try {
-      await saveLocalDraft({ date: TODAY, answers: nextAnswers, rubric, updatedAt });
-      await enqueueMutation({ id: `draft-${TODAY}-${criterion.id}-${Date.now()}`, type: "save-draft", payload: { date: TODAY, answers: nextAnswers, baseUpdatedAt: updatedAt }, createdAt: updatedAt });
-      setSaveState(navigator.onLine ? "saved" : "offline");
+      await saveLocalDraft({ date: currentDate, answers: nextAnswers, rubric, updatedAt });
+      const mutation: MutationPayload = { id: `draft-${currentDate}-${criterion.id}-${Date.now()}`, type: recordStatus === "completed" ? "complete-record" : "save-draft", payload: { date: currentDate, answers: nextAnswers, baseUpdatedAt: updatedAt }, createdAt: updatedAt };
+      await enqueueMutation(mutation);
+      setSaveState(authMode === "signed-in" ? await syncPendingMutations() : navigator.onLine ? "saved" : "offline");
     } catch {
       setSaveState("offline");
     }
@@ -185,8 +231,8 @@ export default function CorkWillLogPage() {
     setRecordStatus("completed");
     setSaveState("saving");
     const nextRecord: DailyRecord = {
-      id: `record-${TODAY}`,
-      date: TODAY,
+      id: `record-${currentDate}`,
+      date: currentDate,
       status: "completed",
       score: currentScore,
       answers,
@@ -194,24 +240,43 @@ export default function CorkWillLogPage() {
       evaluationLabel: currentEvaluation.label,
       updatedAt: new Date().toISOString(),
     };
-    setHistory((items) => [nextRecord, ...items.filter((item) => item.date !== TODAY)]);
-    await enqueueMutation({ id: `complete-${TODAY}-${Date.now()}`, type: "complete-record", payload: { date: TODAY, answers, baseUpdatedAt: new Date().toISOString() }, createdAt: new Date().toISOString() });
-    setSaveState(navigator.onLine ? "saved" : "offline");
+    setHistory((items) => [nextRecord, ...items.filter((item) => item.date !== currentDate)]);
+    const updatedAt = new Date().toISOString();
+    await enqueueMutation({ id: `complete-${currentDate}-${Date.now()}`, type: "complete-record", payload: { date: currentDate, answers, baseUpdatedAt: updatedAt }, createdAt: updatedAt });
+    setSaveState(authMode === "signed-in" ? await syncPendingMutations() : navigator.onLine ? "saved" : "offline");
     setToast(locale === "ja" ? "今日の記録を保存しました。" : "Today’s record is saved.");
   }
 
-  function clearAnswers() {
+  async function clearAnswers() {
     setAnswers({});
     setRecordStatus("draft");
+    const updatedAt = new Date().toISOString();
+    await saveLocalDraft({ date: currentDate, answers: {}, rubric, updatedAt });
+    await enqueueMutation({ id: `clear-${currentDate}-${Date.now()}`, type: "save-draft", payload: { date: currentDate, answers: {}, baseUpdatedAt: updatedAt }, createdAt: updatedAt });
+    setSaveState(authMode === "signed-in" ? await syncPendingMutations() : navigator.onLine ? "saved" : "offline");
     setToast(locale === "ja" ? "回答をクリアしました。" : "Answers cleared.");
   }
 
-  function saveRubric() {
+  async function saveRubric() {
     if (!validation.valid) return;
-    const next = { ...cloneRubric(draftRubric), version: rubric.version + 1, id: `local-rubric-${rubric.version + 1}` };
+    let next = { ...cloneRubric(draftRubric), version: rubric.version + 1, id: `local-rubric-${rubric.version + 1}` };
+    if (authMode === "signed-in") {
+      const response = await fetch("/api/rubric", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rubric: draftRubric }),
+      }).catch(() => null);
+      if (!response?.ok) {
+        setSaveState("needs-attention");
+        setToast(locale === "ja" ? "変更を保存できませんでした。" : "Changes could not be saved.");
+        return;
+      }
+      const payload = await response.json() as { rubric?: Rubric };
+      if (payload.rubric) next = payload.rubric;
+    }
     setRubric(next);
     setDraftRubric(cloneRubric(next));
-    setToast(locale === "ja" ? "ルールを保存しました。明日から適用されます。" : "Rules saved. They apply starting tomorrow.");
+    setToast(locale === "ja" ? "ルールを保存し、今から適用しました。" : "Rules saved and applied.");
   }
 
   function openSettings(tab: SettingsTab) {
@@ -261,7 +326,7 @@ export default function CorkWillLogPage() {
       </header>
 
       <main className={`main-content main-${view}`}>
-        {view === "today" && <TodayView t={t} locale={locale} rubric={rubric} answers={answers} answered={answered} complete={complete} currentScore={currentScore} currentEvaluation={currentEvaluation} recordStatus={recordStatus} saveState={saveState} chooseOutcome={chooseOutcome} finishToday={finishToday} clearAnswers={clearAnswers} openSettings={openSettings} />}
+        {view === "today" && <TodayView t={t} locale={locale} currentDate={currentDate} rubric={rubric} answers={answers} answered={answered} complete={complete} currentScore={currentScore} currentEvaluation={currentEvaluation} recordStatus={recordStatus} saveState={saveState} chooseOutcome={chooseOutcome} finishToday={finishToday} clearAnswers={clearAnswers} openSettings={openSettings} />}
         {view === "history" && <HistoryView t={t} locale={locale} history={history} rangeDays={rangeDays} setRangeDays={setRangeDays} selectedRecord={selectedRecord} setSelectedRecord={setSelectedRecord} />}
         {view === "settings" && <SettingsView t={t} locale={locale} tab={settingsTab} setTab={setSettingsTab} draftRubric={draftRubric} setDraftRubric={setDraftRubric} validation={validation} saveRubric={saveRubric} rubric={rubric} setLanguage={setLanguage} timezone={timezone} setTimezone={setTimezone} cutoffHour={cutoffHour} setCutoffHour={setCutoffHour} setToast={setToast} exportData={exportData} deleteAccount={deleteAccount} />}
       </main>
@@ -297,11 +362,11 @@ function ScoreSummary({ t, score, evaluation, evaluationMax, answered, total, st
   </section>;
 }
 
-function TodayView({ t, locale, rubric, answers, answered, complete, currentScore, currentEvaluation, recordStatus, saveState, chooseOutcome, finishToday, clearAnswers, openSettings }: { t: typeof copy.en; locale: Locale; rubric: Rubric; answers: Answers; answered: number; complete: boolean; currentScore: number; currentEvaluation: EvaluationLevel; recordStatus: "draft" | "completed"; saveState: SaveState; chooseOutcome: (criterion: Criterion, outcome: Outcome) => Promise<void>; finishToday: () => Promise<void>; clearAnswers: () => void; openSettings: (tab: SettingsTab) => void }) {
+function TodayView({ t, locale, currentDate, rubric, answers, answered, complete, currentScore, currentEvaluation, recordStatus, saveState, chooseOutcome, finishToday, clearAnswers, openSettings }: { t: typeof copy.en; locale: Locale; currentDate: string; rubric: Rubric; answers: Answers; answered: number; complete: boolean; currentScore: number; currentEvaluation: EvaluationLevel; recordStatus: "draft" | "completed"; saveState: SaveState; chooseOutcome: (criterion: Criterion, outcome: Outcome) => Promise<void>; finishToday: () => Promise<void>; clearAnswers: () => Promise<void>; openSettings: (tab: SettingsTab) => void }) {
   const orderedLevels = [...rubric.levels].sort((a, b) => a.min - b.min);
   const evaluationIndex = Math.max(0, orderedLevels.findIndex((level) => level.id === currentEvaluation.id));
   return <div className="page today-page">
-    <div className="page-heading today-heading"><div><p className="eyebrow">{t.today} · {t.dateLabel}</p><h1>{t.dayPrompt}</h1></div><button className="text-button" onClick={clearAnswers}>{t.startOver}</button></div>
+    <div className="page-heading today-heading"><div><p className="eyebrow">{t.today} · {displayLongDate(currentDate, locale)}</p><h1>{t.dayPrompt}</h1></div><button className="text-button" onClick={() => void clearAnswers()}>{t.startOver}</button></div>
     <ScoreSummary t={t} score={currentScore} evaluation={currentEvaluation} evaluationMax={evaluationRange(orderedLevels, evaluationIndex).max} answered={answered} total={requiredCount(rubric)} status={recordStatus} saveState={saveState} />
     <div className="today-sections">{rubric.sections.map((section, index) => <SectionCard key={section.id} section={section} sectionIndex={index} t={t} answers={answers} chooseOutcome={chooseOutcome} />)}</div>
     <section className="finish-panel"><div><span className="finish-kicker">{complete ? t.finishedHint : `${requiredCount(rubric) - answered} ${locale === "ja" ? "項目が未回答" : "required criteria left"}`}</span><h2>{complete ? t.completed : t.finish}</h2><p>{complete ? t.finishedHint : t.finishHint}</p></div><button className="primary-button" disabled={!complete} onClick={() => void finishToday()}>{t.finish} {icon("arrow")}</button></section>

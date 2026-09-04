@@ -30,7 +30,8 @@ export async function PUT(request: Request): Promise<Response> {
   const next = { ...cloneRubric(incoming), id: `${user.id}-rubric-${version}`, version };
   const now = Date.now();
   const id = `${user.id}-rubric-${version}`;
+  const appliesFrom = new Date(now).toISOString().slice(0, 10);
   await database().prepare("INSERT INTO rubric_versions (id, user_id, version_number, minimum_score, config_json, effective_from, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, user.id, version, next.minimumScore, JSON.stringify(next), new Date(now + 86_400_000).toISOString().slice(0, 10), now).run();
-  return json({ rubric: next, rubricVersionId: id, appliesFrom: new Date(now + 86_400_000).toISOString().slice(0, 10) });
+    .bind(id, user.id, version, next.minimumScore, JSON.stringify(next), appliesFrom, now).run();
+  return json({ rubric: next, rubricVersionId: id, appliesFrom });
 }

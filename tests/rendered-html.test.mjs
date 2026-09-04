@@ -107,7 +107,7 @@ test("the validated build includes Log, onboarding, and storage compatibility", 
   assert.match(scoringSource, /Sleep enough to feel steady/);
   assert.match(source, /History/);
   assert.match(source, /Settings/);
-  assert.match(offlineSource, /zenlenz-log-local/);
+  assert.match(offlineSource, /corkwill-log-local/);
   assert.match(localeHookSource, /zenlenz-log-locale/);
   assert.match(guideSource, /corkwill-log-tutorial-v1/);
   assert.match(source, /tutorialOpen/);
@@ -116,6 +116,10 @@ test("the validated build includes Log, onboarding, and storage compatibility", 
   assert.match(serverSource, /CorkWill Log サインインコード/);
   assert.match(serverSource, /zl_session/);
   assert.match(serverSource, /CorkWill Log sign-in code/);
+  assert.match(serverSource, /oai-authenticated-user-id/);
+  assert.match(source, /effectiveDate/);
+  assert.match(source, /syncPendingMutations/);
+  assert.doesNotMatch(source, /const TODAY = "2026-08-02"/);
   assert.match(exportSource, /corkwill-log-export\.csv/);
   assert.match(exportSource, /corkwill-log-export\.json/);
   assert.doesNotMatch(`${source}\n${localeSource}\n${serverSource}\n${exportSource}`, /ZenLenz/);

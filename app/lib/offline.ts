@@ -7,14 +7,14 @@ type DraftPayload = {
   updatedAt: string;
 };
 
-type MutationPayload = {
+export type MutationPayload = {
   id: string;
   type: "save-draft" | "complete-record" | "update-history";
   payload: unknown;
   createdAt: string;
 };
 
-const databaseName = "zenlenz-log-local";
+const databaseName = "corkwill-log-local";
 const databaseVersion = 1;
 
 function openDatabase(): Promise<IDBDatabase | null> {

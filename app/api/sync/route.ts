@@ -44,7 +44,7 @@ export async function POST(request: Request): Promise<Response> {
         rubric: currentRubric.rubric,
         mutationId: mutation.id,
       });
-      applied.push(result.record);
+      applied.push({ mutationId: mutation.id, record: result.record });
     } catch (error) {
       conflicts.push({ mutationId: mutation.id, date, reason: error instanceof Error ? error.message : "Unable to apply mutation." });
     }
