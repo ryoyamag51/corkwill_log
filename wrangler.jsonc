@@ -24,8 +24,7 @@
     "binding": "IMAGES"
   },
   "assets": {
-    "binding": "ASSETS",
-    "run_worker_first": true
+    "binding": "ASSETS"
   },
   "observability": {
     "enabled": true,
