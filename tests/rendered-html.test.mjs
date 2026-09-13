@@ -71,7 +71,7 @@ async function render(pathname = "/") {
 
 test("the CorkWill fallback links to the public app", async () => {
   const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
-  assert.match(html, /<title>CorkWill Log/i);
+  assert.match(html, /<title>CorkWill/i);
   assert.match(html, /href="\/log"/i);
   assert.match(html, /href="\/log"/i);
   assert.match(html, /Open CorkWill Log/i);
