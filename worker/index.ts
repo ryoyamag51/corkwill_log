@@ -30,12 +30,12 @@ type AccessIdentity = {
   name?: string;
 };
 
-function privateModeEnabled(env: Env): boolean {
-  return env.PRIVATE_MODE === "true";
+function privateModeEnabled(env: Env, request: Request): boolean {
+  return env.PRIVATE_MODE === "true" && new URL(request.url).hostname.endsWith(".workers.dev");
 }
 
 async function accessIdentity(request: Request, env: Env): Promise<AccessIdentity | null> {
-  if (!privateModeEnabled(env)) return null;
+  if (!privateModeEnabled(env, request)) return null;
 
   const teamDomain = env.ACCESS_TEAM_DOMAIN?.replace(/\/$/, "");
   const audience = env.ACCESS_AUD?.trim();
@@ -79,8 +79,18 @@ function requestWithIdentity(request: Request, identity: AccessIdentity | null):
 
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const requestUrl = new URL(request.url);
+    if (requestUrl.pathname.startsWith("/api/") && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
+      const origin = request.headers.get("Origin");
+      if ((origin && origin !== requestUrl.origin) || request.headers.get("Sec-Fetch-Site") === "cross-site") {
+        return Response.json({ error: "Cross-origin request rejected." }, { status: 403 });
+      }
+      if (Number(request.headers.get("Content-Length")) > 262144) {
+        return Response.json({ error: "Request too large." }, { status: 413 });
+      }
+    }
     const identity = await accessIdentity(request, env);
-    if (privateModeEnabled(env) && !identity) {
+    if (privateModeEnabled(env, request) && !identity) {
       const configured = Boolean(env.ACCESS_TEAM_DOMAIN && env.ACCESS_AUD);
       return new Response(configured ? "Cloudflare Access authentication required." : "Private access is not configured yet.", {
         status: configured ? 403 : 503,
@@ -102,7 +112,13 @@ const worker = {
       }, allowedWidths);
     }
 
-    return handler.fetch(authenticatedRequest, env, ctx);
+    const response = await handler.fetch(authenticatedRequest, env, ctx);
+    const secured = new Response(response.body, response);
+    secured.headers.set("X-Content-Type-Options", "nosniff");
+    secured.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+    secured.headers.set("X-Frame-Options", "DENY");
+    if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/log")) secured.headers.set("Cache-Control", "no-store");
+    return secured;
   },
 };
 

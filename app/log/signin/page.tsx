@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-html-link-for-pages */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { copy } from "../../lib/locales";
 import { usePersistedLocale } from "../../lib/use-persisted-locale";
@@ -11,12 +11,22 @@ type Step = "email" | "code";
 
 export default function SignInPage() {
   const [locale, setLocale] = usePersistedLocale();
+  const [providers, setProviders] = useState<{ google: boolean; email: boolean } | null>(null);
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const t = copy[locale] as typeof copy.en;
+
+  useEffect(() => {
+    void fetch("/api/auth/providers").then((response) => response.json() as Promise<{ google: boolean; email: boolean }>).then((options) => { setProviders(options); if (new URLSearchParams(window.location.search).has("error")) setError(locale === "ja" ? "ログインを完了できませんでした。もう一度お試しください。" : "Sign-in could not be completed. Please try again."); }).catch(() => setProviders({ google: false, email: false }));
+  }, [locale]);
+
+  function signInWithGoogle() {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    window.location.assign(`/api/auth/google?${new URLSearchParams({ locale, timezone })}`);
+  }
 
   async function requestCode(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -90,9 +100,12 @@ export default function SignInPage() {
           <div className="auth-mark">C</div>
           <p className="eyebrow">CorkWill Log</p>
           <h1>{step === "email" ? t.signInTitle : t.codeTitle}</h1>
-          <p className="auth-intro">{step === "email" ? t.signInIntro : `${t.codeIntro} ${email}`}</p>
+          <p className="auth-intro">{step === "email" ? (locale === "ja" ? "自分だけの記録を保存し、端末間で同期できます。" : "Save your personal records and sync them across devices.") : `${t.codeIntro} ${email}`}</p>
 
-          {step === "email" ? (
+          {providers?.google && step === "email" && <button className="primary-button full-width" onClick={signInWithGoogle}>{locale === "ja" ? "Google で続ける" : "Continue with Google"}</button>}
+          {providers && !providers.google && !providers.email && <p className="auth-help" role="status">{locale === "ja" ? "アカウント登録の準備中です。まもなく Google アカウントでご利用いただけます。" : "Account registration is being configured. Google sign-in will be available soon."}</p>}
+          {!providers && <p role="status">{locale === "ja" ? "読み込み中…" : "Loading sign-in options…"}</p>}
+          {providers?.email && (step === "email" ? (
             <form onSubmit={(event) => void requestCode(event)} noValidate>
               <label className="visually-hidden" htmlFor="email">{locale === "ja" ? "メールアドレス" : "Email"}</label>
               <input id="email" type="email" inputMode="email" autoComplete="email" placeholder={t.emailPlaceholder} value={email} onChange={(event) => setEmail(event.target.value)} disabled={submitting} autoFocus />
@@ -105,12 +118,12 @@ export default function SignInPage() {
               <button className="primary-button full-width" type="submit" disabled={submitting}>{submitting ? t.checkingCode : t.verifyCode}<span aria-hidden="true">→</span></button>
               <button type="button" className="link-button auth-back" disabled={submitting} onClick={() => { setStep("email"); setCode(""); setError(""); }}>{t.changeEmail}</button>
             </form>
-          )}
+          ))}
 
           {step === "code" && <p className="auth-help">{t.codeExpiry}<br />{t.checkSpam}</p>}
           {error && <p className="auth-error" role="alert">{error}</p>}
           <div className="auth-alternatives">
-            <a href="/log">{t.tryDemo}</a>
+            <a href="/privacy">{locale === "ja" ? "プライバシー" : "Privacy"}</a>
             <a href="/">{t.returnHome}</a>
           </div>
         </div>

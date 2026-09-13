@@ -102,7 +102,14 @@ export const syncMutations = sqliteTable(
   ],
 );
 
+export const authIdentities = sqliteTable("auth_identities", {
+  provider: text("provider").notNull(),
+  subject: text("subject").notNull(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+}, (table) => [uniqueIndex("idx_auth_identity_subject").on(table.provider, table.subject), index("idx_auth_identities_user").on(table.userId)]);
+
 export const schema = {
+  authIdentities,
   users,
   verificationCodes,
   sessions,

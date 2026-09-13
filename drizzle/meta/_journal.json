@@ -8,6 +8,13 @@
       "when": 1788238742054,
       "tag": "0000_funny_imperial_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1789283563080,
+      "tag": "0001_complete_jubilee",
+      "breakpoints": true
     }
   ]
 }

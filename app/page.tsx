@@ -12,9 +12,9 @@ export default function Home() {
   return (
     <div className="landing-shell">
       <header className="landing-header">
-        <a className="landing-brand" href="/" aria-label="CorkWill Log home">
+        <a className="landing-brand" href="/" aria-label="CorkWill home">
           <span className="landing-brand-mark">C</span>
-          <span>CorkWill <strong>Log</strong></span>
+          <span>CorkWill</span>
         </a>
         <div className="landing-language" role="group" aria-label={t.language}>
           <button className={locale === "en" ? "is-active" : ""} aria-pressed={locale === "en"} onClick={() => setLocale("en")}>EN</button>
@@ -24,14 +24,15 @@ export default function Home() {
       </header>
 
       <main>
+        <p className="landing-eyebrow service-intro">{locale === "ja" ? "CorkWill のサービス — 毎日を、自分らしく。" : "Services from CorkWill — make room for what matters."}</p>
         <section className="landing-hero" aria-labelledby="landing-title">
           <div className="landing-hero-copy">
             <p className="landing-eyebrow">{t.eyebrow}</p>
             <h1 id="landing-title">{t.title}</h1>
             <p className="landing-intro">{t.intro}</p>
             <div className="landing-actions">
-              <a className="landing-primary" href="/log/signin">{t.primary}<span aria-hidden="true">→</span></a>
-              <a className="landing-secondary" href="/log">{t.secondary}</a>
+              <a className="landing-primary" href="/log">{t.primary}<span aria-hidden="true">→</span></a>
+              <a className="landing-secondary" href="#how-title">{t.secondary}</a>
             </div>
             <p className="landing-note"><span aria-hidden="true">✓</span>{t.note}</p>
           </div>
@@ -77,10 +78,11 @@ export default function Home() {
             <p>{t.finalBody}</p>
           </div>
           <div className="landing-actions">
-            <a className="landing-primary" href="/log/signin">{t.primary}<span aria-hidden="true">→</span></a>
-            <a className="landing-secondary" href="/log">{t.secondary}</a>
+            <a className="landing-primary" href="/log">{t.primary}<span aria-hidden="true">→</span></a>
+            <a className="landing-secondary" href="#how-title">{t.secondary}</a>
           </div>
         </section>
+              <footer className="landing-footer"><a href="/log">CorkWill Log →</a><a href="/privacy">{locale === "ja" ? "プライバシー" : "Privacy"}</a></footer>
       </main>
 
       <footer className="landing-footer"><span>CorkWill Log</span><span>© 2026 CorkWill</span></footer>

@@ -10,6 +10,9 @@ export type RuntimeEnv = {
   SESSION_SECRET?: string;
   VERIFICATION_SECRET?: string;
   APP_ENV?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  PUBLIC_ORIGIN?: string;
 };
 
 export type AuthenticatedUser = UserProfile & { id: string };
@@ -80,7 +83,7 @@ export function randomToken(): string {
 export function readCookie(request: Request, name: string): string | null {
   const cookieHeader = request.headers.get("cookie") ?? "";
   const match = cookieHeader.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`));
-  return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
+  try { return match ? decodeURIComponent(match.slice(name.length + 1)) : null; } catch { return null; }
 }
 
 export function sessionCookie(token: string, maxAge = 60 * 60 * 24 * 30): string {

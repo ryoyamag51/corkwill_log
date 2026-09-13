@@ -34,29 +34,9 @@ import BeginnerGuide, { tutorialStorageKey } from "./BeginnerGuide";
 
 type View = "today" | "history" | "settings";
 type SettingsTab = "scoring" | "levels" | "profile" | "data";
-type AuthMode = "demo" | "signed-in";
+type AuthMode = "loading" | "signed-in";
 
 const starter = createStarterRubric();
-
-const initialAnswers: Answers = {
-  sleep: "sleep-mid",
-  movement: "movement-high",
-  focus: "focus-high",
-};
-
-const demoHistory: DailyRecord[] = [
-  { id: "record-1", date: "2026-08-01", status: "completed", score: 92, answers: {}, rubricVersion: 2, evaluationLabel: "Strong", updatedAt: "2026-08-01T20:10:00.000Z" },
-  { id: "record-2", date: "2026-07-31", status: "completed", score: 84, answers: {}, rubricVersion: 2, evaluationLabel: "Good", updatedAt: "2026-07-31T18:00:00.000Z" },
-  { id: "record-3", date: "2026-07-30", status: "missed", score: 0, answers: {}, rubricVersion: 1, evaluationLabel: "Reset", updatedAt: "2026-07-31T05:00:00.000Z" },
-  { id: "record-4", date: "2026-07-29", status: "completed", score: 78, answers: {}, rubricVersion: 1, evaluationLabel: "Steady", updatedAt: "2026-07-29T21:30:00.000Z" },
-  { id: "record-5", date: "2026-07-28", status: "completed", score: 88, answers: {}, rubricVersion: 1, evaluationLabel: "Good", updatedAt: "2026-07-28T19:42:00.000Z" },
-  { id: "record-6", date: "2026-07-27", status: "completed", score: 94, answers: {}, rubricVersion: 1, evaluationLabel: "Strong", updatedAt: "2026-07-27T22:02:00.000Z" },
-  { id: "record-7", date: "2026-07-26", status: "completed", score: 82, answers: {}, rubricVersion: 1, evaluationLabel: "Good", updatedAt: "2026-07-26T17:32:00.000Z" },
-  { id: "record-8", date: "2026-07-25", status: "completed", score: 76, answers: {}, rubricVersion: 1, evaluationLabel: "Steady", updatedAt: "2026-07-25T16:10:00.000Z" },
-  { id: "record-9", date: "2026-07-24", status: "completed", score: 90, answers: {}, rubricVersion: 1, evaluationLabel: "Strong", updatedAt: "2026-07-24T21:18:00.000Z" },
-  { id: "record-10", date: "2026-07-23", status: "completed", score: 87, answers: {}, rubricVersion: 1, evaluationLabel: "Good", updatedAt: "2026-07-23T18:45:00.000Z" },
-  { id: "record-11", date: "2026-07-22", status: "completed", score: 80, answers: {}, rubricVersion: 1, evaluationLabel: "Good", updatedAt: "2026-07-22T20:11:00.000Z" },
-];
 
 function displayDate(date: string, locale: Locale): string {
   return new Intl.DateTimeFormat(locale === "ja" ? "ja-JP" : "en-US", {
@@ -91,9 +71,9 @@ function effectiveDate(timezone: string, cutoffHour: number, now = new Date()): 
   }
 }
 
-async function syncPendingMutations(): Promise<"saved" | "offline" | "needs-attention"> {
+async function flushPendingMutations(accountId: string): Promise<"saved" | "offline" | "needs-attention"> {
   if (!navigator.onLine) return "offline";
-  const mutations = await readMutationQueue();
+  const mutations = (await readMutationQueue(accountId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).slice(0, 50);
   if (mutations.length === 0) return "saved";
   try {
     const response = await fetch("/api/sync", {
@@ -106,11 +86,20 @@ async function syncPendingMutations(): Promise<"saved" | "offline" | "needs-atte
       applied?: Array<{ mutationId?: string }>;
       conflicts?: Array<{ mutationId?: string }>;
     };
-    await Promise.all((payload.applied ?? []).flatMap((item) => item.mutationId ? [removeMutation(item.mutationId)] : []));
-    return (payload.conflicts?.length ?? 0) > 0 ? "needs-attention" : "saved";
+    await Promise.all((payload.applied ?? []).flatMap((item) => item.mutationId ? [removeMutation(accountId, item.mutationId)] : []));
+    if ((payload.conflicts?.length ?? 0) > 0 || (payload.applied?.length ?? 0) < mutations.length) return "needs-attention";
+    return (await readMutationQueue(accountId)).length > 0 ? flushPendingMutations(accountId) : "saved";
   } catch {
     return navigator.onLine ? "needs-attention" : "offline";
   }
+}
+
+// Serialize uploads so successive answer snapshots cannot overtake each other.
+let syncTail: Promise<"saved" | "offline" | "needs-attention"> = Promise.resolve("saved");
+function syncPendingMutations(accountId: string): Promise<"saved" | "offline" | "needs-attention"> {
+  const result = syncTail.then(() => flushPendingMutations(accountId));
+  syncTail = result.catch(() => "needs-attention");
+  return syncTail;
 }
 
 function icon(name: "today" | "history" | "settings" | "check" | "arrow") {
@@ -121,15 +110,17 @@ export default function CorkWillLogPage() {
   const [locale, setLocale] = usePersistedLocale();
   const [view, setView] = useState<View>("today");
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("scoring");
-  const [authMode, setAuthMode] = useState<AuthMode>("demo");
+  const [authMode, setAuthMode] = useState<AuthMode>("loading");
+  const [accountId, setAccountId] = useState("");
+  const [loadedDate, setLoadedDate] = useState("");
   const [accountEmail, setAccountEmail] = useState("");
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [rubric, setRubric] = useState<Rubric>(starter);
   const [draftRubric, setDraftRubric] = useState<Rubric>(cloneRubric(starter));
-  const [answers, setAnswers] = useState<Answers>(initialAnswers);
+  const [answers, setAnswers] = useState<Answers>({});
   const [recordStatus, setRecordStatus] = useState<"draft" | "completed">("draft");
   const [saveState, setSaveState] = useState<SaveState>("saved");
-  const [history, setHistory] = useState<DailyRecord[]>(demoHistory);
+  const [history, setHistory] = useState<DailyRecord[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<DailyRecord | null>(null);
   const [rangeDays, setRangeDays] = useState<30 | 90>(30);
   const [timezone, setTimezone] = useState("Asia/Tokyo");
@@ -145,22 +136,17 @@ export default function CorkWillLogPage() {
   const validation = useMemo(() => validateRubric(draftRubric), [draftRubric]);
 
   useEffect(() => {
-    void readLocalDraft(currentDate).then((draft) => {
-      if (draft?.answers) setAnswers(draft.answers);
-    }).catch(() => undefined);
-  }, [currentDate]);
-
-  useEffect(() => {
     void fetch("/api/me").then(async (response) => {
-      if (!response.ok) return;
-      const payload = await response.json() as { user?: { email?: string; locale?: Locale; timezone?: string; cutoffHour?: number } };
-      if (!payload.user) return;
+      if (!response.ok) { window.location.replace("/log/signin"); return; }
+      const payload = await response.json() as { user?: { id: string; email?: string; locale?: Locale; timezone?: string; cutoffHour?: number } };
+      if (!payload.user) { window.location.replace("/log/signin"); return; }
+      setAccountId(payload.user.id);
       setAuthMode("signed-in");
       if (payload.user.email) setAccountEmail(payload.user.email);
       if (payload.user.locale) setLocale(payload.user.locale);
       if (payload.user.timezone) setTimezone(payload.user.timezone);
       if (typeof payload.user.cutoffHour === "number") setCutoffHour(payload.user.cutoffHour);
-    }).catch(() => undefined);
+    }).catch(() => setSaveState("needs-attention"));
   }, [setLocale]);
 
   useEffect(() => {
@@ -171,8 +157,11 @@ export default function CorkWillLogPage() {
   }, []);
 
   useEffect(() => {
-    if (authMode !== "signed-in") return;
-    void Promise.all([fetch("/api/rubric"), fetch(`/api/today?date=${currentDate}`), fetch("/api/history?days=90")]).then(async ([rubricResponse, todayResponse, historyResponse]) => {
+    if (authMode !== "signed-in" || !accountId) return;
+    let cancelled = false;
+    void syncPendingMutations(accountId).then(setSaveState).then(() => Promise.all([fetch("/api/rubric"), fetch(`/api/today?date=${currentDate}`), fetch("/api/history?days=90")])).then(async ([rubricResponse, todayResponse, historyResponse]) => {
+      if (cancelled) return;
+      if (![rubricResponse, todayResponse, historyResponse].every((response) => response.ok)) throw new Error("Unable to load records.");
       if (rubricResponse.ok) {
         const payload = await rubricResponse.json() as { rubric?: Rubric };
         if (payload.rubric) {
@@ -182,23 +171,26 @@ export default function CorkWillLogPage() {
       }
       if (todayResponse.ok) {
         const payload = await todayResponse.json() as { record?: DailyRecord | null };
-        setAnswers(payload.record?.answers ?? {});
+        const local = await readLocalDraft(accountId, currentDate);
+        if (cancelled) return;
+        setAnswers(local && (!payload.record || local.updatedAt > payload.record.updatedAt) ? local.answers : payload.record?.answers ?? {});
         setRecordStatus(payload.record?.status === "completed" ? "completed" : "draft");
       }
       if (historyResponse.ok) {
         const payload = await historyResponse.json() as { records?: DailyRecord[] };
         setHistory(payload.records ?? []);
       }
-      setSaveState(await syncPendingMutations());
-    }).catch(() => undefined);
-  }, [authMode, currentDate]);
+      setLoadedDate(currentDate);
+    }).catch(() => { if (!cancelled) setSaveState("needs-attention"); });
+    return () => { cancelled = true; };
+  }, [authMode, accountId, currentDate]);
 
   useEffect(() => {
-    if (authMode !== "signed-in") return;
-    const sync = () => { void syncPendingMutations().then(setSaveState); };
+    if (authMode !== "signed-in" || !accountId) return;
+    const sync = () => { void syncPendingMutations(accountId).then(setSaveState); };
     window.addEventListener("online", sync);
     return () => window.removeEventListener("online", sync);
-  }, [authMode]);
+  }, [authMode, accountId]);
 
   useEffect(() => {
     if (!toast) return;
@@ -217,10 +209,10 @@ export default function CorkWillLogPage() {
     setSaveState("saving");
     const updatedAt = new Date().toISOString();
     try {
-      await saveLocalDraft({ date: currentDate, answers: nextAnswers, rubric, updatedAt });
+      await saveLocalDraft(accountId, { date: currentDate, answers: nextAnswers, rubric, updatedAt });
       const mutation: MutationPayload = { id: `draft-${currentDate}-${criterion.id}-${Date.now()}`, type: recordStatus === "completed" ? "complete-record" : "save-draft", payload: { date: currentDate, answers: nextAnswers, baseUpdatedAt: updatedAt }, createdAt: updatedAt };
-      await enqueueMutation(mutation);
-      setSaveState(authMode === "signed-in" ? await syncPendingMutations() : navigator.onLine ? "saved" : "offline");
+      await enqueueMutation(accountId, mutation);
+      setSaveState(authMode === "signed-in" ? await syncPendingMutations(accountId) : navigator.onLine ? "saved" : "offline");
     } catch {
       setSaveState("offline");
     }
@@ -242,8 +234,8 @@ export default function CorkWillLogPage() {
     };
     setHistory((items) => [nextRecord, ...items.filter((item) => item.date !== currentDate)]);
     const updatedAt = new Date().toISOString();
-    await enqueueMutation({ id: `complete-${currentDate}-${Date.now()}`, type: "complete-record", payload: { date: currentDate, answers, baseUpdatedAt: updatedAt }, createdAt: updatedAt });
-    setSaveState(authMode === "signed-in" ? await syncPendingMutations() : navigator.onLine ? "saved" : "offline");
+    await enqueueMutation(accountId, { id: `complete-${currentDate}-${Date.now()}`, type: "complete-record", payload: { date: currentDate, answers, baseUpdatedAt: updatedAt }, createdAt: updatedAt });
+    setSaveState(authMode === "signed-in" ? await syncPendingMutations(accountId) : navigator.onLine ? "saved" : "offline");
     setToast(locale === "ja" ? "今日の記録を保存しました。" : "Today’s record is saved.");
   }
 
@@ -251,9 +243,9 @@ export default function CorkWillLogPage() {
     setAnswers({});
     setRecordStatus("draft");
     const updatedAt = new Date().toISOString();
-    await saveLocalDraft({ date: currentDate, answers: {}, rubric, updatedAt });
-    await enqueueMutation({ id: `clear-${currentDate}-${Date.now()}`, type: "save-draft", payload: { date: currentDate, answers: {}, baseUpdatedAt: updatedAt }, createdAt: updatedAt });
-    setSaveState(authMode === "signed-in" ? await syncPendingMutations() : navigator.onLine ? "saved" : "offline");
+    await saveLocalDraft(accountId, { date: currentDate, answers: {}, rubric, updatedAt });
+    await enqueueMutation(accountId, { id: `clear-${currentDate}-${Date.now()}`, type: "save-draft", payload: { date: currentDate, answers: {}, baseUpdatedAt: updatedAt }, createdAt: updatedAt });
+    setSaveState(authMode === "signed-in" ? await syncPendingMutations(accountId) : navigator.onLine ? "saved" : "offline");
     setToast(locale === "ja" ? "回答をクリアしました。" : "Answers cleared.");
   }
 
@@ -290,7 +282,8 @@ export default function CorkWillLogPage() {
 
   async function deleteAccount() {
     if (!window.confirm(t.deleteConfirm)) return;
-    await fetch("/api/account", { method: "DELETE" }).catch(() => undefined);
+    const response = await fetch("/api/account", { method: "DELETE" }).catch(() => null);
+    if (!response?.ok) { setToast(locale === "ja" ? "削除できませんでした。もう一度お試しください。" : "Deletion failed. Please try again."); return; }
     window.location.assign("/log/signin");
   }
 
@@ -302,6 +295,8 @@ export default function CorkWillLogPage() {
     }
     window.location.assign("/log/signin");
   }
+
+  if (authMode !== "signed-in" || loadedDate !== currentDate) return <div className="app-frame"><main className="auth-main"><div className="auth-card" role="status"><h1>CorkWill Log</h1><p>{saveState === "needs-attention" ? (locale === "ja" ? "読み込めませんでした。接続を確認して再読み込みしてください。" : "Could not load your records. Check your connection and reload.") : (locale === "ja" ? "記録を読み込んでいます…" : "Loading your records…")}</p><a href="/log/signin">{t.signIn}</a></div></main></div>;
 
   return (
     <div className="app-frame">
@@ -318,9 +313,9 @@ export default function CorkWillLogPage() {
         <div className="header-actions">
           <button className="help-button" onClick={() => setTutorialOpen(true)}>{t.tutorial.help}</button>
           <LanguageSwitch locale={locale} setLanguage={setLanguage} />
-          <button className="account-chip" onClick={() => void accountAction()} aria-label={authMode === "demo" ? t.signInToSync : t.signOut}>
+          <button className="account-chip" onClick={() => void accountAction()} aria-label={authMode !== "signed-in" ? t.signInToSync : t.signOut}>
             <span className="account-dot" />
-            <span>{authMode === "demo" ? t.signIn : accountEmail || t.signOut}</span>
+            <span>{authMode !== "signed-in" ? t.signIn : accountEmail || t.signOut}</span>
           </button>
         </div>
       </header>
