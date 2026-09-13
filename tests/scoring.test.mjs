@@ -38,3 +38,19 @@ test("an evaluation rubric must end at 100", () => {
   assert.equal(validation.valid, false);
   assert.match(validation.issues.map((issue) => issue.message).join(" "), /end at 100/);
 });
+
+const { effectiveDate, timezoneLabel, timezoneOptions, validTimezone } = await import('../app/lib/timezone.ts');
+test('local cutoff follows wall time at DST changes and across date boundaries', () => {
+  assert.equal(effectiveDate('America/New_York', 5, new Date('2026-03-08T09:00:00Z')), '2026-03-08');
+  assert.equal(effectiveDate('America/New_York', 5, new Date('2026-03-08T08:59:00Z')), '2026-03-07');
+  assert.equal(effectiveDate('America/New_York', 5, new Date('2026-11-01T09:59:00Z')), '2026-10-31');
+  assert.equal(effectiveDate('Asia/Tokyo', 5, new Date('2026-01-01T19:59:00Z')), '2026-01-01');
+  assert.equal(effectiveDate('Asia/Tokyo', 5, new Date('2026-01-01T20:00:00Z')), '2026-01-02');
+});
+test('timezone choices include fractional UTC offsets and seasonal offsets', () => {
+  assert.match(timezoneLabel('Asia/Kathmandu'), /UTC\+05:45/);
+  assert.match(timezoneLabel('America/New_York', new Date('2026-01-01')), /UTC-05:00/);
+  assert.match(timezoneLabel('America/New_York', new Date('2026-07-01')), /UTC-04:00/);
+  assert.ok(timezoneOptions('UTC').length > 30);
+  assert.equal(validTimezone('Imaginary/Place'), false);
+});
