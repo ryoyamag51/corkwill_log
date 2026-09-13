@@ -1,18 +1,16 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "corkwill-log",
+  "name": "corkwill-web",
   "main": "./worker/index.ts",
   "compatibility_date": "2026-05-15",
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "workers_dev": true,
+  "workers_dev": false,
   "preview_urls": false,
   "vars": {
     "APP_ENV": "production",
-    "PRIVATE_MODE": "true",
-    "ACCESS_TEAM_DOMAIN": "https://square-bonus-81ca.cloudflareaccess.com",
-    "ACCESS_AUD": "24a32ac1fbea4bbfcde750e745927aba487081cb1ca2b481d729af48e1af4ce1",
+    "PRIVATE_MODE": "false",
     "PUBLIC_ORIGIN": "https://corkwill.com"
   },
   "d1_databases": [

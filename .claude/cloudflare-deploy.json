@@ -1,12 +1,11 @@
 {
   "type": "workers",
-  "projectName": "corkwill-log",
+  "projectName": "corkwill-web",
   "method": "wrangler-cli",
   "accountId": "04ae480abc15ee97ac403575593e8b7f",
   "domains": [
-    "corkwill.com",
-    "corkwill-log.ryoyamag51.workers.dev"
+    "corkwill.com"
   ],
-  "notes": "Build with pnpm build; deploy dist/server/wrangler.json. corkwill.com/* serves public landing, Log and APIs. Existing workers.dev hostname retains Cloudflare Access protection. Google OAuth credentials are Worker secrets; registration stays disabled until configured.",
+  "notes": "Build with pnpm build; deploy dist/server/wrangler.json to the public corkwill-web Worker. It shares the existing corkwill-log D1 database. corkwill.com/* serves the public landing, Log and APIs. The separate corkwill-log workers.dev deployment retains its Cloudflare Access protection. Registration stays disabled until Google OAuth credentials are configured.",
   "verifiedDate": "2026-09-13"
 }

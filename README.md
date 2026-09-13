@@ -6,12 +6,12 @@ scoring, daily records, history, exports, account deletion, and English/Japanese
 
 ## Infrastructure
 
-- Cloudflare Worker `corkwill-log`, deployed from this repository using vinext.
+- Cloudflare Worker `corkwill-web`, deployed from this repository using vinext.
 - Cloudflare D1 `corkwill-log` stores accounts, Google identities, hashed sessions,
   scoring rules, records, and synchronization metadata.
 - The `corkwill.com/*` Worker route serves the homepage, `/log`, and APIs together.
 - The existing `corkwill-log.ryoyamag51.workers.dev` address retains its owner-only
-  Cloudflare Access protection. Public requests cannot inject Access identities.
+  Cloudflare Access protection on the separate `corkwill-log` Worker. Public requests cannot inject Access identities.
 - IndexedDB drafts and upload queues are separated by account ID. Previous
   unscoped browser storage is preserved but never imported into another account.
 
