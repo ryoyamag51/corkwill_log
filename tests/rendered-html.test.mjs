@@ -2,7 +2,25 @@ import assert from "node:assert/strict";
 import { access, readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
+const { generateKeyPair, exportJWK, SignJWT, jwtVerify } = await import("jose");
+const googleSigningKeys = await generateKeyPair("RS256");
+const googleJwk = { ...await exportJWK(googleSigningKeys.publicKey), kid: "test-google-key", alg: "RS256", use: "sig" };
+const testSessionSecret = "test-session-secret-with-at-least-32-characters";
+let mockedGoogleToken = "";
 let workerHarness;
+let schemaReady = false;
+async function initializeDatabase() {
+  const mf = await harness();
+  const db = await mf.getD1Database("DB");
+  if (!schemaReady) {
+    for (const filename of ["0000_funny_imperial_guard.sql", "0001_complete_jubilee.sql"]) {
+      const sql = await readFile(new URL(`../drizzle/${filename}`, import.meta.url), "utf8");
+      for (const statement of sql.replaceAll("--> statement-breakpoint", "").split(";").filter((s) => s.trim())) await db.prepare(statement).run();
+    }
+    schemaReady = true;
+  }
+  return db;
+}
 
 async function loadMiniflare() {
   try {
@@ -25,7 +43,13 @@ async function harness() {
       scriptPath: "dist/server/index.js",
       compatibilityDate: "2026-05-15",
       compatibilityFlags: ["nodejs_compat"],
-      bindings: { APP_ENV: "test", PRIVATE_MODE: "false" },
+      bindings: { APP_ENV: "test", PRIVATE_MODE: "false", SESSION_SECRET: testSessionSecret, GOOGLE_CLIENT_ID: "test-client", GOOGLE_CLIENT_SECRET: "test-client-secret", PUBLIC_ORIGIN: "https://corkwill.com" },
+      outboundService: async (request) => {
+        const url = new URL(request.url);
+        if (url.href === "https://www.googleapis.com/oauth2/v3/certs") return Response.json({ keys: [googleJwk] });
+        if (url.href === "https://oauth2.googleapis.com/token") return Response.json({ id_token: mockedGoogleToken });
+        throw new Error(`Unexpected outbound request: ${url.origin}${url.pathname}`);
+      },
       d1Databases: { DB: "corkwill-log-test" },
       assets: {
         directory: "dist/client",
@@ -45,13 +69,13 @@ async function render(pathname = "/") {
   return (await harness()).dispatchFetch(`http://localhost${pathname}`, { headers: { accept: "text/html" } });
 }
 
-test("the CorkWill fallback introduces email sign-in and the demo", async () => {
+test("the CorkWill fallback links to the public app", async () => {
   const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
-  assert.match(html, /<title>CorkWill Log/i);
-  assert.match(html, /href="\/log\/signin"/i);
+  assert.match(html, /<title>CorkWill/i);
   assert.match(html, /href="\/log"/i);
-  assert.match(html, /Start with email/i);
-  assert.match(html, /Try the demo/i);
+  assert.match(html, /href="\/log"/i);
+  assert.match(html, /Open CorkWill Log/i);
+  assert.match(html, /See how it works/i);
 });
 
 test("server-renders the bilingual introduction and sign-in route", async () => {
@@ -59,8 +83,8 @@ test("server-renders the bilingual introduction and sign-in route", async () => 
   assert.equal(landingResponse.status, 200);
   const landing = await landingResponse.text();
   assert.match(landing, /A clearer way to close the day/i);
-  assert.match(landing, /Start with email/i);
-  assert.match(landing, /Try the demo/i);
+  assert.match(landing, /Open CorkWill Log/i);
+  assert.match(landing, /See how it works/i);
   assert.match(landing, /日本語/);
 
   const signInResponse = await render("/log/signin");
@@ -68,7 +92,7 @@ test("server-renders the bilingual introduction and sign-in route", async () => 
   const signIn = await signInResponse.text();
   assert.match(signIn, /Sign in · CorkWill Log/i);
   assert.match(signIn, /Keep a clear record/i);
-  assert.match(signIn, /Send code/i);
+  assert.match(signIn, /Loading sign-in options/i);
 });
 
 test("server-renders CorkWill Log at /log without legacy visible branding", async () => {
@@ -77,9 +101,8 @@ test("server-renders CorkWill Log at /log without legacy visible branding", asyn
   const html = await response.text();
   assert.match(html, /<title>CorkWill Log<\/title>/i);
   assert.match(html, /CorkWill/);
-  assert.match(html, /Today/);
-  assert.match(html, /History/);
-  assert.match(html, /Settings/);
+  assert.match(html, /Loading your records/);
+  assert.doesNotMatch(html, /record-1|Demo workspace/);
   assert.doesNotMatch(html, /ZenLenz/i);
 });
 
@@ -141,4 +164,74 @@ test("email sign-in rejects invalid input and fails closed without production se
     body: JSON.stringify({ email: "person@example.com", locale: "ja" }),
   });
   assert.equal(unconfigured.status, 503);
+});
+
+async function googleLogin(subject, email, overrides = {}) {
+  const mf = await harness();
+  const start = await mf.dispatchFetch("https://corkwill.com/api/auth/google?locale=ja&timezone=Asia%2FTokyo", { redirect: "manual" });
+  assert.equal(start.status, 303);
+  const location = new URL(start.headers.get("location"));
+  assert.equal(location.origin, "https://accounts.google.com");
+  assert.equal(location.searchParams.get("code_challenge_method"), "S256");
+  assert.equal(location.searchParams.get("redirect_uri"), "https://corkwill.com/api/auth/google/callback");
+  const cookie = start.headers.get("set-cookie").split(";")[0];
+  const flowToken = cookie.slice(cookie.indexOf("=") + 1);
+  const { payload: flow } = await jwtVerify(flowToken, new TextEncoder().encode(testSessionSecret));
+  mockedGoogleToken = await new SignJWT({ email, email_verified: true, nonce: flow.nonce, ...overrides })
+    .setProtectedHeader({ alg: "RS256", kid: "test-google-key" }).setSubject(subject).setIssuer("https://accounts.google.com").setAudience("test-client").setIssuedAt().setExpirationTime("5m").sign(googleSigningKeys.privateKey);
+  return mf.dispatchFetch(`https://corkwill.com/api/auth/google/callback?code=mock-code&state=${flow.state}`, { headers: { Cookie: cookie }, redirect: "manual" });
+}
+
+function sessionFrom(response) {
+  const cookies = response.headers.getSetCookie();
+  const cookie = cookies.find((value) => value.startsWith("zl_session="));
+  assert.ok(cookie);
+  assert.match(cookie, /HttpOnly; Secure; SameSite=Lax/);
+  return cookie.split(";")[0];
+}
+
+test("Google callback rejects missing state, tampered cookies, and unverified email", async () => {
+  await initializeDatabase();
+  const mf = await harness();
+  for (const cookie of ["", "cw_google_flow=tampered", "cw_google_flow=%XX"]) {
+    const response = await mf.dispatchFetch("https://corkwill.com/api/auth/google/callback?code=bad&state=bad", { redirect: "manual", headers: { Cookie: cookie } });
+    assert.equal(response.status, 303);
+    assert.equal(response.headers.get("location"), "/log/signin?error=google");
+    assert.ok(!response.headers.getSetCookie().some((value) => value.startsWith("zl_session=")));
+  }
+  const unverified = await googleLogin("unverified-user", "unverified@gmail.com", { email_verified: false });
+  assert.equal(unverified.headers.get("location"), "/log/signin?error=google");
+});
+
+test("Google accounts persist in D1 and records remain isolated between accounts", async () => {
+  const db = await initializeDatabase();
+  const mf = await harness();
+  const alice = sessionFrom(await googleLogin("alice-google", "alice@gmail.com"));
+  const bob = sessionFrom(await googleLogin("bob-google", "bob@gmail.com"));
+  const request = (path, cookie, init = {}) => mf.dispatchFetch(`https://corkwill.com${path}`, { ...init, headers: { Cookie: cookie, "Content-Type": "application/json", ...(init.headers ?? {}) } });
+  const aliceUser = await (await request("/api/me", alice)).json();
+  assert.equal(aliceUser.user.locale, "ja");
+  assert.equal(aliceUser.user.timezone, "Asia/Tokyo");
+  const saved = await request("/api/today", alice, { method: "PATCH", body: JSON.stringify({ date: "2026-09-13", answers: { sleep: "sleep-mid" }, status: "draft" }) });
+  assert.equal(saved.status, 200);
+  const aliceRecords = await (await request("/api/history", alice)).json();
+  const bobRecords = await (await request("/api/history", bob)).json();
+  assert.equal(aliceRecords.records.length, 1);
+  assert.equal(bobRecords.records.length, 0);
+  const secondAlice = sessionFrom(await googleLogin("alice-google", "alice@gmail.com"));
+  assert.equal((await (await request("/api/me", secondAlice)).json()).user.id, aliceUser.user.id);
+  assert.equal((await (await request("/api/history", secondAlice)).json()).records.length, 1);
+  const exported = await request("/api/export?format=json", alice);
+  assert.equal(exported.status, 200);
+  assert.match(await exported.text(), /sleep-mid/);
+  const spoofed = await mf.dispatchFetch("https://corkwill.com/api/me", { headers: { "x-corkwill-user-id": aliceUser.user.id, "x-corkwill-user-email": "alice@gmail.com" } });
+  assert.equal(spoofed.status, 401);
+  const csrf = await request("/api/account", alice, { method: "DELETE", headers: { Origin: "https://attacker.example" } });
+  assert.equal(csrf.status, 403);
+  assert.equal((await request("/api/account", bob, { method: "DELETE" })).status, 200);
+  assert.equal((await request("/api/me", bob)).status, 401);
+  assert.equal((await db.prepare("SELECT count(*) AS count FROM auth_identities WHERE subject = 'bob-google'").first()).count, 0);
+  assert.equal((await request("/api/auth/logout", alice, { method: "POST" })).status, 200);
+  assert.equal((await request("/api/me", alice)).status, 401);
+  assert.equal((await request("/api/me", secondAlice)).status, 200);
 });

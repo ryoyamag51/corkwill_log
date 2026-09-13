@@ -1,53 +1,78 @@
-# CorkWill Log
+# CorkWill
 
-CorkWill Log is a bilingual daily reflection app. It turns a small set of configurable answers into a daily score, preserves historical records, and makes trends easy to review.
+CorkWill's service homepage is served at https://corkwill.com. Its first service,
+CorkWill Log, runs at https://corkwill.com/log with a personal account, configurable
+scoring, daily records, history, exports, account deletion, and English/Japanese UI.
 
-## What works
+## Infrastructure
 
-- English and Japanese interfaces
-- Configurable scoring criteria and evaluation levels
-- Daily drafts and completion states
-- Offline-first local saving with cloud sync when connectivity returns
-- D1-backed accounts, preferences, rubrics, history, export, and account deletion
-- Owner-only personal deployment through Cloudflare Access
-- Optional email-code authentication for a later public release
+- Cloudflare Worker `corkwill-web`, deployed from this repository using vinext.
+- Cloudflare D1 `corkwill-log` stores accounts, Google identities, hashed sessions,
+  scoring rules, records, and synchronization metadata.
+- The `corkwill.com/*` Worker route serves the homepage, `/log`, and APIs together.
+- The existing `corkwill-log.ryoyamag51.workers.dev` address retains its owner-only
+  Cloudflare Access protection on the separate `corkwill-log` Worker. Public requests cannot inject Access identities.
+- IndexedDB drafts and upload queues are separated by account ID. Previous
+  unscoped browser storage is preserved but never imported into another account.
 
-## Local development
+## Sign-in configuration
 
-Use Node.js 22.13 or newer.
+Google sign-in uses server-side authorization-code exchange, PKCE, signed state,
+nonce verification, and Google's signed ID token. It requests `openid email profile`
+only, with no access to Gmail messages. Matching existing verified Gmail/Workspace
+accounts keep their D1 records. Sessions use secure, HttpOnly cookies.
 
-```bash
+Configure a Google OAuth **Web application** client in project `CorkWill Log`
+(`fast-haiku-508507-t5`):
+
+- Homepage: `https://corkwill.com`
+- Privacy: `https://corkwill.com/privacy`
+- Authorized domain: `corkwill.com`
+- Redirect URI: `https://corkwill.com/api/auth/google/callback`
+- Audience: External, published to Production (not limited to test users).
+
+Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `SESSION_SECRET` as Worker
+secrets using Wrangler. Never commit credential files. `/api/auth/providers`
+reports available sign-in methods; unavailable methods cannot be selected.
+
+Optional email-code sign-in requires `RESEND_API_KEY`, `RESEND_FROM`, and
+`VERIFICATION_SECRET`. It remains disabled until all required settings exist.
+
+**Launch status (2026-09-13):** Public on `corkwill.com`. Google Auth is External
+and In production, and the OAuth credentials are installed as secrets on
+`corkwill-web`. Live Google sign-up, authenticated Log/history access, and session
+persistence after reload were verified. D1 contains the new Google-linked account;
+the pre-existing daily record and its update timestamp remain unchanged.
+
+## Develop and validate
+
+Use Node.js 22.13 or newer and pnpm.
+
+```sh
 pnpm install
 pnpm dev
-```
-
-The app is served at `http://localhost:3000`, with the main product at `/log`.
-
-## Validation
-
-```bash
 pnpm build
+pnpm exec tsc --noEmit
 pnpm lint
 node --test tests/rendered-html.test.mjs tests/scoring.test.mjs
 ```
 
-## Deployment model
+Tests use local Miniflare D1 and mocked Google responses to check OAuth validation,
+account persistence, record isolation, export, logout, account deletion, and CSRF
+rejection. They do not send email or modify production data.
 
-The personal release runs as a native Cloudflare Worker with static assets and a D1 database. Worker-level Cloudflare Access protects every route, and the Worker validates the signed Access identity before creating the matching CorkWill Log profile and starter rubric on first use.
+## Deploy
 
-Personal URL: `https://corkwill-log.ryoyamag51.workers.dev`
+Back up the remote D1 database outside version control before migrations. Review
+pending migrations and retain the previous Worker version for rollback.
 
-```bash
+```sh
+pnpm exec wrangler d1 migrations list corkwill-log --remote
 pnpm exec wrangler d1 migrations apply corkwill-log --remote
-pnpm run deploy:cloudflare
+pnpm build
+pnpm exec wrangler deploy --config dist/server/wrangler.json --dry-run
+pnpm exec wrangler deploy --config dist/server/wrangler.json
 ```
 
-The public launch is intentionally separate:
-
-1. Complete personal-use testing on the private Worker.
-2. Configure the final public sign-in policy and transactional email sender if email codes will remain available.
-3. Route `corkwill.com/log*` and the related API/auth paths through Cloudflare without replacing the public `corkwill.com` origin.
-4. Run privacy, abuse-prevention, accessibility, and data-recovery checks.
-5. Remove the Worker-level Access policy only after those launch checks pass.
-
-Cloudflare routing is required for a path-based launch. The personal `workers.dev` deployment is intentionally separate from the later `corkwill.com/log` route.
+Verify `/`, `/log`, `/log/signin`, `/privacy`, `/api/auth/providers`, and unauthenticated
+API rejection on the live domain. Check D1 record counts after deployment.

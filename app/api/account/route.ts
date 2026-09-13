@@ -7,6 +7,7 @@ export async function DELETE(request: Request): Promise<Response> {
   if (!user) return json({ error: "Authentication required." }, { status: 401 });
   const db = database();
   await db.batch([
+    db.prepare("DELETE FROM auth_identities WHERE user_id = ?").bind(user.id),
     db.prepare("DELETE FROM daily_records WHERE user_id = ?").bind(user.id),
     db.prepare("DELETE FROM rubric_versions WHERE user_id = ?").bind(user.id),
     db.prepare("DELETE FROM sync_mutations WHERE user_id = ?").bind(user.id),
