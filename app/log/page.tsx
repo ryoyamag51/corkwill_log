@@ -1,7 +1,10 @@
 "use client";
 
+/* eslint-disable @next/next/no-html-link-for-pages -- Leave the Log workspace with a full document navigation. */
 import { useEffect, useMemo, useState } from "react";
 
+import { deviceTimezone, effectiveDate, timezoneLabel, timezoneOptions } from "../lib/timezone";
+import ReleaseVersion from "./ReleaseVersion";
 import { copy } from "../lib/locales";
 import { enqueueMutation, readLocalDraft, readMutationQueue, removeMutation, saveLocalDraft } from "../lib/offline";
 import type { MutationPayload } from "../lib/offline";
@@ -53,22 +56,6 @@ function displayLongDate(date: string, locale: Locale): string {
     day: "numeric",
     weekday: "long",
   }).format(new Date(`${date}T12:00:00`));
-}
-
-function effectiveDate(timezone: string, cutoffHour: number, now = new Date()): string {
-  const shifted = new Date(now.getTime() - cutoffHour * 60 * 60 * 1000);
-  try {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).formatToParts(shifted);
-    const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-    return `${value.year}-${value.month}-${value.day}`;
-  } catch {
-    return shifted.toISOString().slice(0, 10);
-  }
 }
 
 async function flushPendingMutations(accountId: string): Promise<"saved" | "offline" | "needs-attention"> {
@@ -123,12 +110,15 @@ export default function CorkWillLogPage() {
   const [history, setHistory] = useState<DailyRecord[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<DailyRecord | null>(null);
   const [rangeDays, setRangeDays] = useState<30 | 90>(30);
-  const [timezone, setTimezone] = useState("Asia/Tokyo");
+  const [timezone, setTimezone] = useState("UTC");
+  const [automaticTimezone, setAutomaticTimezone] = useState(true);
+  const [clockTick, setClockTick] = useState(0);
+  const [signingOut, setSigningOut] = useState(false);
   const [cutoffHour, setCutoffHour] = useState(5);
   const [toast, setToast] = useState("");
 
   const t = copy[locale] as typeof copy.en;
-  const currentDate = useMemo(() => effectiveDate(timezone, cutoffHour), [timezone, cutoffHour]);
+  const currentDate = useMemo(() => effectiveDate(timezone, cutoffHour, new Date(clockTick)), [timezone, cutoffHour, clockTick]);
   const currentScore = Math.max(rubric.minimumScore, Math.min(100, scoreAnswers(rubric, answers)));
   const currentEvaluation = evaluationForScore(rubric, currentScore);
   const answered = answeredCount(rubric, answers);
@@ -140,14 +130,42 @@ export default function CorkWillLogPage() {
       if (!response.ok) { window.location.replace("/log/signin"); return; }
       const payload = await response.json() as { user?: { id: string; email?: string; locale?: Locale; timezone?: string; cutoffHour?: number } };
       if (!payload.user) { window.location.replace("/log/signin"); return; }
+      setClockTick(Date.now());
       setAccountId(payload.user.id);
       setAuthMode("signed-in");
       if (payload.user.email) setAccountEmail(payload.user.email);
       if (payload.user.locale) setLocale(payload.user.locale);
-      if (payload.user.timezone) setTimezone(payload.user.timezone);
+      const detected = deviceTimezone();
+      setAutomaticTimezone(Boolean(detected));
+      setTimezone(detected || payload.user.timezone || "UTC");
       if (typeof payload.user.cutoffHour === "number") setCutoffHour(payload.user.cutoffHour);
     }).catch(() => setSaveState("needs-attention"));
   }, [setLocale]);
+
+  useEffect(() => {
+    if (authMode !== "signed-in") return;
+    let syncedZone = "";
+    let syncing = false;
+    const refresh = () => {
+      setClockTick(Date.now());
+      const detected = deviceTimezone();
+      setAutomaticTimezone(Boolean(detected));
+      if (detected) setTimezone(detected);
+      const zone = detected || timezone;
+      if (syncedZone === zone || syncing) return;
+      syncing = true;
+      void fetch("/api/me", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ timezone: zone }) })
+        .then((response) => { if (response.ok) syncedZone = zone; else throw new Error("Timezone sync failed"); })
+        .catch(() => setToast(locale === "ja" ? "タイムゾーンはこの端末に反映済みです。アカウントへの同期は再試行します。" : "Timezone applied on this device. Account sync will retry."))
+        .finally(() => { syncing = false; });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 60_000);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); window.removeEventListener("online", refresh); document.removeEventListener("visibilitychange", refresh); };
+  }, [authMode, timezone, locale]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -288,9 +306,11 @@ export default function CorkWillLogPage() {
   }
 
   async function accountAction() {
-    if (authMode === "signed-in") {
-      await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
-      window.location.assign("/log/signin");
+    setSigningOut(true);
+    const response = await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
+    if (!response?.ok) {
+      setSigningOut(false);
+      setToast(locale === "ja" ? "サインアウトできませんでした。もう一度お試しください。" : "Could not sign out. Please try again.");
       return;
     }
     window.location.assign("/log/signin");
@@ -301,10 +321,16 @@ export default function CorkWillLogPage() {
   return (
     <div className="app-frame">
       <header className="app-header">
+        <div className="brand-group">
+          <details className="service-launcher" onKeyDown={(event) => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}>
+            <summary aria-label={locale === "ja" ? "CorkWillのサービス" : "CorkWill services"}><span className="nine-dots" aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <i key={i} />)}</span></summary>
+            <div className="service-panel"><strong>CorkWill</strong><a href="/log"><span className="brand-mark" aria-hidden="true">C</span>CorkWill Log</a><a href="/">{locale === "ja" ? "公式ホームページ ↗" : "Official website ↗"}</a></div>
+          </details>
         <button className="brand-button" onClick={() => { setView("today"); setSelectedRecord(null); }} aria-label={t.nav.today}>
           <span className="brand-mark">C</span>
           <span className="brand-name"><span>CorkWill</span> <strong>Log</strong></span>
         </button>
+        </div>
         <nav className="desktop-nav" aria-label={locale === "ja" ? "メインナビゲーション" : "Primary navigation"}>
           <NavButton active={view === "today"} onClick={() => setView("today")} label={t.nav.today} iconName="today" />
           <NavButton active={view === "history"} onClick={() => setView("history")} label={t.nav.history} iconName="history" />
@@ -313,19 +339,19 @@ export default function CorkWillLogPage() {
         <div className="header-actions">
           <button className="help-button" onClick={() => setTutorialOpen(true)}>{t.tutorial.help}</button>
           <LanguageSwitch locale={locale} setLanguage={setLanguage} />
-          <button className="account-chip" onClick={() => void accountAction()} aria-label={authMode !== "signed-in" ? t.signInToSync : t.signOut}>
-            <span className="account-dot" />
-            <span>{authMode !== "signed-in" ? t.signIn : accountEmail || t.signOut}</span>
-          </button>
+          <span className="account-info" title={accountEmail}><span className="account-dot" />{accountEmail}</span>
+          <button className="outline-button sign-out-button" onClick={() => void accountAction()} disabled={signingOut}>{signingOut ? "…" : "Sign Out"}</button>
+
         </div>
       </header>
 
       <main className={`main-content main-${view}`}>
-        {view === "today" && <TodayView t={t} locale={locale} currentDate={currentDate} rubric={rubric} answers={answers} answered={answered} complete={complete} currentScore={currentScore} currentEvaluation={currentEvaluation} recordStatus={recordStatus} saveState={saveState} chooseOutcome={chooseOutcome} finishToday={finishToday} clearAnswers={clearAnswers} openSettings={openSettings} />}
+        {view === "today" && <div className="dashboard-layout"><TodayView t={t} locale={locale} currentDate={currentDate} rubric={rubric} answers={answers} answered={answered} complete={complete} currentScore={currentScore} currentEvaluation={currentEvaluation} recordStatus={recordStatus} saveState={saveState} chooseOutcome={chooseOutcome} finishToday={finishToday} clearAnswers={clearAnswers} openSettings={openSettings} /><RecentHistory t={t} locale={locale} history={history} openHistory={(record) => { setSelectedRecord(record ?? null); setView("history"); }} /></div>}
         {view === "history" && <HistoryView t={t} locale={locale} history={history} rangeDays={rangeDays} setRangeDays={setRangeDays} selectedRecord={selectedRecord} setSelectedRecord={setSelectedRecord} />}
-        {view === "settings" && <SettingsView t={t} locale={locale} tab={settingsTab} setTab={setSettingsTab} draftRubric={draftRubric} setDraftRubric={setDraftRubric} validation={validation} saveRubric={saveRubric} rubric={rubric} setLanguage={setLanguage} timezone={timezone} setTimezone={setTimezone} cutoffHour={cutoffHour} setCutoffHour={setCutoffHour} setToast={setToast} exportData={exportData} deleteAccount={deleteAccount} />}
+        {view === "settings" && <SettingsView t={t} locale={locale} tab={settingsTab} setTab={setSettingsTab} draftRubric={draftRubric} setDraftRubric={setDraftRubric} validation={validation} saveRubric={saveRubric} rubric={rubric} setLanguage={setLanguage} timezone={timezone} automaticTimezone={automaticTimezone} setTimezone={setTimezone} cutoffHour={cutoffHour} setCutoffHour={setCutoffHour} setToast={setToast} exportData={exportData} deleteAccount={deleteAccount} />}
       </main>
 
+      <footer className="app-footer"><a href="/">{locale === "ja" ? "← CorkWill 公式ホームページに戻る" : "← Back to CorkWill homepage"}</a><ReleaseVersion /></footer>
       <nav className="mobile-tabs" aria-label={locale === "ja" ? "メインナビゲーション" : "Primary navigation"}>
         <NavButton active={view === "today"} onClick={() => setView("today")} label={t.nav.today} iconName="today" />
         <NavButton active={view === "history"} onClick={() => setView("history")} label={t.nav.history} iconName="history" />
@@ -378,6 +404,17 @@ function SectionCard({ section, sectionIndex, t, answers, chooseOutcome }: { sec
   </section>;
 }
 
+function RecentHistory({ t, locale, history, openHistory }: { t: typeof copy.en; locale: Locale; history: DailyRecord[]; openHistory: (record?: DailyRecord) => void }) {
+  const recent = [...history].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 7);
+  const scored = recent.filter((record) => record.status !== "missed");
+  const average = scored.length ? Math.round(scored.reduce((sum, record) => sum + record.score, 0) / scored.length) : "—";
+  return <aside className="recent-history" aria-label={t.nav.history}>
+    <div className="page-heading"><div><p className="eyebrow">{t.nav.history}</p><h2>{locale === "ja" ? "最近の記録" : "Recent history"}</h2><p>{locale === "ja" ? "今日を記録しながら、これまでを振り返る。" : "A little perspective as you record today."}</p></div></div>
+    <section className="chart-card"><div className="card-heading"><h2>{t.trend}</h2><span className="muted-label">{locale === "ja" ? "直近7件" : "Latest 7 records"}</span></div>{recent.length ? <><div className="recent-average"><span>{t.average}</span><strong>{average}</strong><span>/ 100</span></div><ScoreChart records={recent} t={t} locale={locale} /></> : <p className="history-empty">{locale === "ja" ? "記録を保存すると、ここに推移が表示されます。" : "Save your first record to see your progress here."}</p>}</section>
+    <section className="records-section"><div className="card-heading"><h2>{t.records}</h2></div>{recent.map((record) => <button className="recent-record" key={record.id} onClick={() => openHistory(record)}><span>{displayDate(record.date, locale)}<small>{record.status === "draft" ? t.draft : record.evaluationLabel}</small></span><strong>{record.status === "missed" ? "—" : record.score}</strong>{icon("arrow")}</button>)}<button className="outline-button full-history-button" onClick={() => openHistory()}>{locale === "ja" ? "履歴を詳しく見る" : "View full history"} →</button></section>
+  </aside>;
+}
+
 function HistoryView({ t, locale, history, rangeDays, setRangeDays, selectedRecord, setSelectedRecord }: { t: typeof copy.en; locale: Locale; history: DailyRecord[]; rangeDays: 30 | 90; setRangeDays: (value: 30 | 90) => void; selectedRecord: DailyRecord | null; setSelectedRecord: (record: DailyRecord | null) => void }) {
   const visible = history.slice(0, rangeDays === 30 ? 11 : history.length);
   const average = Math.round(visible.filter((record) => record.status !== "missed").reduce((total, record) => total + record.score, 0) / Math.max(1, visible.filter((record) => record.status !== "missed").length));
@@ -411,9 +448,9 @@ function ScoreChart({ records, t, locale }: { records: DailyRecord[]; t: typeof 
   </svg></div>;
 }
 
-function SettingsView({ t, locale, tab, setTab, draftRubric, setDraftRubric, validation, saveRubric, rubric, setLanguage, timezone, setTimezone, cutoffHour, setCutoffHour, setToast, exportData, deleteAccount }: { t: typeof copy.en; locale: Locale; tab: SettingsTab; setTab: (tab: SettingsTab) => void; draftRubric: Rubric; setDraftRubric: (rubric: Rubric) => void; validation: ReturnType<typeof validateRubric>; saveRubric: () => void; rubric: Rubric; setLanguage: (locale: Locale) => void; timezone: string; setTimezone: (timezone: string) => void; cutoffHour: number; setCutoffHour: (hour: number) => void; setToast: (value: string) => void; exportData: (format: "json" | "csv") => void; deleteAccount: () => Promise<void> }) {
+function SettingsView({ t, locale, tab, setTab, draftRubric, setDraftRubric, validation, saveRubric, rubric, setLanguage, timezone, automaticTimezone, setTimezone, cutoffHour, setCutoffHour, setToast, exportData, deleteAccount }: { t: typeof copy.en; locale: Locale; tab: SettingsTab; setTab: (tab: SettingsTab) => void; draftRubric: Rubric; setDraftRubric: (rubric: Rubric) => void; validation: ReturnType<typeof validateRubric>; saveRubric: () => void; rubric: Rubric; setLanguage: (locale: Locale) => void; timezone: string; automaticTimezone: boolean; setTimezone: (timezone: string) => void; cutoffHour: number; setCutoffHour: (hour: number) => void; setToast: (value: string) => void; exportData: (format: "json" | "csv") => void; deleteAccount: () => Promise<void> }) {
   const tabs: Array<[SettingsTab, string]> = [["scoring", t.dailyScoring], ["levels", t.evaluationLevels], ["profile", t.profile], ["data", t.data]];
-  return <div className="page settings-page"><div className="page-heading"><div><p className="eyebrow">{t.nav.settings}</p><h1>{t.settingsTitle}</h1><p>{t.settingsIntro}</p></div><span className="version-chip">v{rubric.version}</span></div><div className="settings-layout"><aside className="settings-nav" aria-label={t.nav.settings}>{tabs.map(([value, label]) => <button key={value} className={tab === value ? "is-active" : ""} onClick={() => setTab(value)}>{label}<span>→</span></button>)}</aside><div className="settings-panel">{tab === "scoring" && <RubricEditor t={t} draftRubric={draftRubric} setDraftRubric={setDraftRubric} validation={validation} saveRubric={saveRubric} />}{tab === "levels" && <LevelEditor t={t} draftRubric={draftRubric} setDraftRubric={setDraftRubric} validation={validation} saveRubric={saveRubric} />}{tab === "profile" && <ProfileEditor t={t} locale={locale} setLanguage={setLanguage} timezone={timezone} setTimezone={setTimezone} cutoffHour={cutoffHour} setCutoffHour={setCutoffHour} setToast={setToast} />}{tab === "data" && <DataEditor t={t} exportData={exportData} deleteAccount={deleteAccount} />}</div></div></div>;
+  return <div className="page settings-page"><div className="page-heading"><div><p className="eyebrow">{t.nav.settings}</p><h1>{t.settingsTitle}</h1><p>{t.settingsIntro}</p></div><span className="version-chip">v{rubric.version}</span></div><div className="settings-layout"><aside className="settings-nav" aria-label={t.nav.settings}>{tabs.map(([value, label]) => <button key={value} className={tab === value ? "is-active" : ""} onClick={() => setTab(value)}>{label}<span>→</span></button>)}</aside><div className="settings-panel">{tab === "scoring" && <RubricEditor t={t} draftRubric={draftRubric} setDraftRubric={setDraftRubric} validation={validation} saveRubric={saveRubric} />}{tab === "levels" && <LevelEditor t={t} draftRubric={draftRubric} setDraftRubric={setDraftRubric} validation={validation} saveRubric={saveRubric} />}{tab === "profile" && <ProfileEditor t={t} locale={locale} setLanguage={setLanguage} timezone={timezone} automaticTimezone={automaticTimezone} setTimezone={setTimezone} cutoffHour={cutoffHour} setCutoffHour={setCutoffHour} setToast={setToast} />}{tab === "data" && <DataEditor t={t} exportData={exportData} deleteAccount={deleteAccount} />}</div></div></div>;
 }
 
 function RubricEditor({ t, draftRubric, setDraftRubric, validation, saveRubric }: { t: typeof copy.en; draftRubric: Rubric; setDraftRubric: (rubric: Rubric) => void; validation: ReturnType<typeof validateRubric>; saveRubric: () => void }) {
@@ -441,9 +478,9 @@ function RangePreview({ t, validation }: { t: typeof copy.en; validation: Return
   return <section className="range-preview"><div className="card-heading"><div><span className="eyebrow">{t.rangePreview}</span><h3>{t.rangePreview}</h3></div><span className={validation.valid ? "valid-chip" : "warning-chip"}>{validation.valid ? t.valid : t.invalid}</span></div><div className="range-scale"><span>{validation.minimumPossible}</span><div className="range-track"><span className="range-fill" style={{ left: `${(validation.minimumPossible / 100) * 100}%`, right: `${100 - validation.maximumPossible}%` }} /><i className="base-marker" style={{ left: "80%" }}><b>80</b></i></div><span>100</span></div><div className="range-values"><span>{t.worstCase} <strong>{validation.minimumPossible}</strong></span><span>{t.base}</span><span>{t.bestCase} <strong>{validation.maximumPossible}</strong></span></div><p className="range-footnote">{localeLabel(t, "Every criterion contributes its selected point value.", "各基準は選択したポイントを加算します。")}</p></section>;
 }
 
-function ProfileEditor({ t, locale, setLanguage, timezone, setTimezone, cutoffHour, setCutoffHour, setToast }: { t: typeof copy.en; locale: Locale; setLanguage: (locale: Locale) => void; timezone: string; setTimezone: (timezone: string) => void; cutoffHour: number; setCutoffHour: (hour: number) => void; setToast: (value: string) => void }) {
-  function save() { void fetch("/api/me", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ locale, timezone, cutoffHour }) }).catch(() => undefined); setToast(locale === "ja" ? "プロフィールを保存しました。" : "Profile saved."); }
-  return <div className="editor-stack"><div className="panel-heading"><div><span className="eyebrow">{t.profile}</span><h2>{t.profile}</h2><p>{localeLabel(t, "These preferences travel with your account.", "これらの設定はアカウントに保存されます。")}</p></div><button className="secondary-button" onClick={save}>{t.saveChanges}</button></div><div className="profile-form"><fieldset><legend>{t.language}</legend><div className="language-options"><button className={locale === "en" ? "is-selected" : ""} onClick={() => setLanguage("en")} aria-pressed={locale === "en"}>English</button><button className={locale === "ja" ? "is-selected" : ""} onClick={() => setLanguage("ja")} aria-pressed={locale === "ja"}>日本語</button></div></fieldset><label>{t.timezone}<select value={timezone} onChange={(event) => setTimezone(event.target.value)}><option>Asia/Tokyo</option><option>America/Los_Angeles</option><option>America/New_York</option><option>Europe/London</option><option>UTC</option></select></label><label>{t.cutoff}<select value={cutoffHour} onChange={(event) => setCutoffHour(Number(event.target.value))}>{Array.from({ length: 24 }, (_, hour) => <option value={hour} key={hour}>{String(hour).padStart(2, "0")}:00</option>)}</select><small>{t.cutoffHint}</small></label></div></div>;
+function ProfileEditor({ t, locale, setLanguage, timezone, automaticTimezone, setTimezone, cutoffHour, setCutoffHour, setToast }: { t: typeof copy.en; locale: Locale; setLanguage: (locale: Locale) => void; timezone: string; automaticTimezone: boolean; setTimezone: (timezone: string) => void; cutoffHour: number; setCutoffHour: (hour: number) => void; setToast: (value: string) => void }) {
+  async function save() { const response = await fetch("/api/me", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ locale, timezone, cutoffHour }) }).catch(() => null); setToast(response?.ok ? (locale === "ja" ? "プロフィールを保存しました。" : "Profile saved.") : (locale === "ja" ? "保存できませんでした。もう一度お試しください。" : "Could not save. Please try again.")); }
+  return <div className="editor-stack"><div className="panel-heading"><div><span className="eyebrow">{t.profile}</span><h2>{t.profile}</h2><p>{localeLabel(t, "These preferences travel with your account.", "これらの設定はアカウントに保存されます。")}</p></div><button className="secondary-button" onClick={save}>{t.saveChanges}</button></div><div className="profile-form"><fieldset><legend>{t.language}</legend><div className="language-options"><button className={locale === "en" ? "is-selected" : ""} onClick={() => setLanguage("en")} aria-pressed={locale === "en"}>English</button><button className={locale === "ja" ? "is-selected" : ""} onClick={() => setLanguage("ja")} aria-pressed={locale === "ja"}>日本語</button></div></fieldset><label>{t.timezone}{automaticTimezone ? <><output className="timezone-output">{timezoneLabel(timezone)}</output><small>{locale === "ja" ? "端末の時刻設定に自動で追従します。夏時間も自動で反映されます。" : "Follows this device’s time settings automatically, including daylight saving time."}</small></> : <><select value={timezone} onChange={(event) => setTimezone(event.target.value)}>{timezoneOptions(timezone).map((zone) => <option key={zone} value={zone}>{timezoneLabel(zone)}</option>)}</select><small>{locale === "ja" ? "端末のタイムゾーンを検出できませんでした。地域を選択してください。UTCとの差は現在の値です。" : "Device timezone unavailable. Choose your region. UTC offsets reflect the current date."}</small></>}</label><label>{t.cutoff}<select value={cutoffHour} onChange={(event) => setCutoffHour(Number(event.target.value))}>{Array.from({ length: 24 }, (_, hour) => <option value={hour} key={hour}>{String(hour).padStart(2, "0")}:00</option>)}</select><small>{t.cutoffHint}</small></label></div></div>;
 }
 
 function DataEditor({ t, exportData, deleteAccount }: { t: typeof copy.en; exportData: (format: "json" | "csv") => void; deleteAccount: () => Promise<void> }) {

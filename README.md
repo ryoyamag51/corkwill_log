@@ -76,3 +76,7 @@ pnpm exec wrangler deploy --config dist/server/wrangler.json
 
 Verify `/`, `/log`, `/log/signin`, `/privacy`, `/api/auth/providers`, and unauthenticated
 API rejection on the live domain. Check D1 record counts after deployment.
+
+## Release versions
+
+`package.json` is the source of the app's semantic version. Log and sign-in footers display it, including on phones. Before a release, update that version and `CHANGELOG.md`; use the matching `vX.Y.Z` Git tag and Cloudflare deployment tag. Cloudflare also assigns its own deployment UUID, which identifies the upload rather than the app release number.

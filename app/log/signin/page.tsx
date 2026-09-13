@@ -1,5 +1,7 @@
 "use client";
 
+import ReleaseVersion from "../ReleaseVersion";
+
 /* eslint-disable @next/next/no-html-link-for-pages */
 
 import { useEffect, useState } from "react";
@@ -128,6 +130,7 @@ export default function SignInPage() {
           </div>
         </div>
       </main>
+      <footer className="auth-release-footer"><ReleaseVersion /></footer>
     </div>
   );
 }
