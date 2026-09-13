@@ -38,11 +38,11 @@ reports available sign-in methods; unavailable methods cannot be selected.
 Optional email-code sign-in requires `RESEND_API_KEY`, `RESEND_FROM`, and
 `VERIFICATION_SECRET`. It remains disabled until all required settings exist.
 
-**Launch status:** Site and authentication implementation are ready. Google Auth
-branding/contact approval and client credentials still require the account owner's
-completion. Until configured, the live sign-in page clearly states registration
-is being configured. Mocked OAuth integration tests are not proof of live Google
-provider configuration.
+**Launch status (2026-09-13):** Public on `corkwill.com`. Google Auth is External
+and In production, and the OAuth credentials are installed as secrets on
+`corkwill-web`. Live Google sign-up, authenticated Log/history access, and session
+persistence after reload were verified. D1 contains the new Google-linked account;
+the pre-existing daily record and its update timestamp remain unchanged.
 
 ## Develop and validate
 
