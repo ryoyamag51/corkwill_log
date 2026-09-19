@@ -13,6 +13,7 @@ export type RuntimeEnv = {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   PUBLIC_ORIGIN?: string;
+  REVENUECAT_TEST_API_KEY?: string;
 };
 
 export type AuthenticatedUser = UserProfile & { id: string };

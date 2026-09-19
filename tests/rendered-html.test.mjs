@@ -166,6 +166,15 @@ test("email sign-in rejects invalid input and fails closed without production se
   assert.equal(unconfigured.status, 503);
 });
 
+test("Test Store is disabled outside review mode and has no deployed review login", async () => {
+  const response = await (await harness()).dispatchFetch("http://localhost/api/support/config");
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { enabled: false });
+  const login = await (await harness()).dispatchFetch("http://localhost/__review/start");
+  assert.equal(login.status, 404);
+  assert.equal(login.headers.get("set-cookie"), null);
+});
+
 async function googleLogin(subject, email, overrides = {}) {
   const mf = await harness();
   const start = await mf.dispatchFetch("https://corkwill.com/api/auth/google?locale=ja&timezone=Asia%2FTokyo", { redirect: "manual" });

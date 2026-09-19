@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — Shipaton Next Gen review build
+
+- Add a Capacitor iOS simulator target for the existing app.
+- Add optional RevenueCat Test Store support, entitlement-checked badges, and restoration; existing features stay free.
+- Add a loopback review server with isolated fictional data and no production sign-in bypass.
+- Prepare MIT licensing, reviewer instructions, submission copy, and local visual assets.
+- Keep test purchases disabled in the public production service.
+
 ## 0.2.0 — 2026-09-13
 
 - Separate the account email from an explicit Sign Out button.

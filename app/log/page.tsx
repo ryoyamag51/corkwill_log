@@ -34,9 +34,11 @@ import type {
 } from "../lib/types";
 import { usePersistedLocale } from "../lib/use-persisted-locale";
 import BeginnerGuide, { tutorialStorageKey } from "./BeginnerGuide";
+import SupportCard from "./SupportCard";
+import type { SupportConfig } from "../lib/support";
 
 type View = "today" | "history" | "settings";
-type SettingsTab = "scoring" | "levels" | "profile" | "data";
+type SettingsTab = "scoring" | "levels" | "profile" | "data" | "support";
 type AuthMode = "loading" | "signed-in";
 
 const starter = createStarterRubric();
@@ -99,6 +101,7 @@ export default function CorkWillLogPage() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("scoring");
   const [authMode, setAuthMode] = useState<AuthMode>("loading");
   const [accountId, setAccountId] = useState("");
+  const [supportConfig, setSupportConfig] = useState<SupportConfig | null>(null);
   const [loadedDate, setLoadedDate] = useState("");
   const [accountEmail, setAccountEmail] = useState("");
   const [tutorialOpen, setTutorialOpen] = useState(false);
@@ -141,6 +144,17 @@ export default function CorkWillLogPage() {
       if (typeof payload.user.cutoffHour === "number") setCutoffHour(payload.user.cutoffHour);
     }).catch(() => setSaveState("needs-attention"));
   }, [setLocale]);
+
+  useEffect(() => {
+    if (!accountId) return;
+    const controller = new AbortController();
+    void fetch("/api/support/config", { signal: controller.signal }).then(async (response) => {
+      if (!response.ok) return;
+      const config = await response.json() as SupportConfig | { enabled: false };
+      if (!controller.signal.aborted) setSupportConfig(config.enabled ? config : null);
+    }).catch(() => undefined);
+    return () => controller.abort();
+  }, [accountId]);
 
   useEffect(() => {
     if (authMode !== "signed-in") return;
@@ -348,7 +362,7 @@ export default function CorkWillLogPage() {
       <main className={`main-content main-${view}`}>
         {view === "today" && <div className="dashboard-layout"><TodayView t={t} locale={locale} currentDate={currentDate} rubric={rubric} answers={answers} answered={answered} complete={complete} currentScore={currentScore} currentEvaluation={currentEvaluation} recordStatus={recordStatus} saveState={saveState} chooseOutcome={chooseOutcome} finishToday={finishToday} clearAnswers={clearAnswers} openSettings={openSettings} /><RecentHistory t={t} locale={locale} history={history} openHistory={(record) => { setSelectedRecord(record ?? null); setView("history"); }} /></div>}
         {view === "history" && <HistoryView t={t} locale={locale} history={history} rangeDays={rangeDays} setRangeDays={setRangeDays} selectedRecord={selectedRecord} setSelectedRecord={setSelectedRecord} />}
-        {view === "settings" && <SettingsView t={t} locale={locale} tab={settingsTab} setTab={setSettingsTab} draftRubric={draftRubric} setDraftRubric={setDraftRubric} validation={validation} saveRubric={saveRubric} rubric={rubric} setLanguage={setLanguage} timezone={timezone} automaticTimezone={automaticTimezone} setTimezone={setTimezone} cutoffHour={cutoffHour} setCutoffHour={setCutoffHour} setToast={setToast} exportData={exportData} deleteAccount={deleteAccount} />}
+        {view === "settings" && <SettingsView supportConfig={supportConfig} t={t} locale={locale} tab={settingsTab} setTab={setSettingsTab} draftRubric={draftRubric} setDraftRubric={setDraftRubric} validation={validation} saveRubric={saveRubric} rubric={rubric} setLanguage={setLanguage} timezone={timezone} automaticTimezone={automaticTimezone} setTimezone={setTimezone} cutoffHour={cutoffHour} setCutoffHour={setCutoffHour} setToast={setToast} exportData={exportData} deleteAccount={deleteAccount} />}
       </main>
 
       <footer className="app-footer"><a href="/">{locale === "ja" ? "← CorkWill 公式ホームページに戻る" : "← Back to CorkWill homepage"}</a><ReleaseVersion /></footer>
@@ -448,9 +462,10 @@ function ScoreChart({ records, t, locale }: { records: DailyRecord[]; t: typeof 
   </svg></div>;
 }
 
-function SettingsView({ t, locale, tab, setTab, draftRubric, setDraftRubric, validation, saveRubric, rubric, setLanguage, timezone, automaticTimezone, setTimezone, cutoffHour, setCutoffHour, setToast, exportData, deleteAccount }: { t: typeof copy.en; locale: Locale; tab: SettingsTab; setTab: (tab: SettingsTab) => void; draftRubric: Rubric; setDraftRubric: (rubric: Rubric) => void; validation: ReturnType<typeof validateRubric>; saveRubric: () => void; rubric: Rubric; setLanguage: (locale: Locale) => void; timezone: string; automaticTimezone: boolean; setTimezone: (timezone: string) => void; cutoffHour: number; setCutoffHour: (hour: number) => void; setToast: (value: string) => void; exportData: (format: "json" | "csv") => void; deleteAccount: () => Promise<void> }) {
+function SettingsView({ supportConfig, t, locale, tab, setTab, draftRubric, setDraftRubric, validation, saveRubric, rubric, setLanguage, timezone, automaticTimezone, setTimezone, cutoffHour, setCutoffHour, setToast, exportData, deleteAccount }: { supportConfig: SupportConfig | null; t: typeof copy.en; locale: Locale; tab: SettingsTab; setTab: (tab: SettingsTab) => void; draftRubric: Rubric; setDraftRubric: (rubric: Rubric) => void; validation: ReturnType<typeof validateRubric>; saveRubric: () => void; rubric: Rubric; setLanguage: (locale: Locale) => void; timezone: string; automaticTimezone: boolean; setTimezone: (timezone: string) => void; cutoffHour: number; setCutoffHour: (hour: number) => void; setToast: (value: string) => void; exportData: (format: "json" | "csv") => void; deleteAccount: () => Promise<void> }) {
   const tabs: Array<[SettingsTab, string]> = [["scoring", t.dailyScoring], ["levels", t.evaluationLevels], ["profile", t.profile], ["data", t.data]];
-  return <div className="page settings-page"><div className="page-heading"><div><p className="eyebrow">{t.nav.settings}</p><h1>{t.settingsTitle}</h1><p>{t.settingsIntro}</p></div><span className="version-chip">v{rubric.version}</span></div><div className="settings-layout"><aside className="settings-nav" aria-label={t.nav.settings}>{tabs.map(([value, label]) => <button key={value} className={tab === value ? "is-active" : ""} onClick={() => setTab(value)}>{label}<span>→</span></button>)}</aside><div className="settings-panel">{tab === "scoring" && <RubricEditor t={t} draftRubric={draftRubric} setDraftRubric={setDraftRubric} validation={validation} saveRubric={saveRubric} />}{tab === "levels" && <LevelEditor t={t} draftRubric={draftRubric} setDraftRubric={setDraftRubric} validation={validation} saveRubric={saveRubric} />}{tab === "profile" && <ProfileEditor t={t} locale={locale} setLanguage={setLanguage} timezone={timezone} automaticTimezone={automaticTimezone} setTimezone={setTimezone} cutoffHour={cutoffHour} setCutoffHour={setCutoffHour} setToast={setToast} />}{tab === "data" && <DataEditor t={t} exportData={exportData} deleteAccount={deleteAccount} />}</div></div></div>;
+  if (supportConfig) tabs.push(["support", locale === "ja" ? "応援する" : "Support"]);
+  return <div className={`page settings-page ${tab === "support" ? "settings-support" : ""}`}><div className="page-heading"><div><p className="eyebrow">{t.nav.settings}</p><h1>{t.settingsTitle}</h1><p>{t.settingsIntro}</p></div><span className="version-chip">v{rubric.version}</span></div><div className="settings-layout"><aside className="settings-nav" aria-label={t.nav.settings}>{tabs.map(([value, label]) => <button key={value} className={tab === value ? "is-active" : ""} onClick={() => setTab(value)}>{label}<span>→</span></button>)}</aside><div className="settings-panel">{tab === "scoring" && <RubricEditor t={t} draftRubric={draftRubric} setDraftRubric={setDraftRubric} validation={validation} saveRubric={saveRubric} />}{tab === "levels" && <LevelEditor t={t} draftRubric={draftRubric} setDraftRubric={setDraftRubric} validation={validation} saveRubric={saveRubric} />}{tab === "profile" && <ProfileEditor t={t} locale={locale} setLanguage={setLanguage} timezone={timezone} automaticTimezone={automaticTimezone} setTimezone={setTimezone} cutoffHour={cutoffHour} setCutoffHour={setCutoffHour} setToast={setToast} />}{tab === "data" && <DataEditor t={t} exportData={exportData} deleteAccount={deleteAccount} />}{tab === "support" && supportConfig && <SupportCard key={supportConfig.appUserId} config={supportConfig} locale={locale} />}</div></div></div>;
 }
 
 function RubricEditor({ t, draftRubric, setDraftRubric, validation, saveRubric }: { t: typeof copy.en; draftRubric: Rubric; setDraftRubric: (rubric: Rubric) => void; validation: ReturnType<typeof validateRubric>; saveRubric: () => void }) {

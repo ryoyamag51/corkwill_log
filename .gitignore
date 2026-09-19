@@ -31,6 +31,15 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.review.example
+
+# Native generated output and local Xcode state
+/ios/App/App/public/
+/ios/App/App/capacitor.config.json
+/ios/App/Pods/
+/ios/App/build/
+**/xcuserdata/
+**/.build/
 
 # vercel
 .vercel

@@ -4,6 +4,20 @@ CorkWill's service homepage is served at https://corkwill.com. Its first service
 CorkWill Log, runs at https://corkwill.com/log with a personal account, configurable
 scoring, daily records, history, exports, account deletion, and English/Japanese UI.
 
+## Shipaton 2026 — Next Gen
+
+The existing app now includes a Capacitor iOS review target with RevenueCat
+Test Store support. Core features remain free; the optional supporter badge uses
+a simulated, one-time purchase with no actual charge. The public production
+service does not enable this testing feature.
+
+See [the iOS review instructions](docs/shipaton/REVIEW.md) for a reproducible local
+setup using fictional records, without paid developer accounts or production
+credentials. [Submission draft](docs/shipaton/DEVPOST-DRAFT.md) and
+[demo plan](docs/shipaton/DEMO-SCRIPT.md) are prepared locally; publication and
+final submission require the owner's approval. This repository uses the
+[MIT license](LICENSE); dependencies retain their own licenses.
+
 ## Infrastructure
 
 - Cloudflare Worker `corkwill-web`, deployed from this repository using vinext.
@@ -46,7 +60,7 @@ the pre-existing daily record and its update timestamp remain unchanged.
 
 ## Develop and validate
 
-Use Node.js 22.13 or newer and pnpm.
+Use Node.js 22.18 or newer and pnpm.
 
 ```sh
 pnpm install
