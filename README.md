@@ -13,9 +13,9 @@ service does not enable this testing feature.
 
 See [the iOS review instructions](docs/shipaton/REVIEW.md) for a reproducible local
 setup using fictional records, without paid developer accounts or production
-credentials. [Submission draft](docs/shipaton/DEVPOST-DRAFT.md) and
-[demo plan](docs/shipaton/DEMO-SCRIPT.md) are prepared locally; publication and
-final submission require the owner's approval. This repository uses the
+credentials. [Submission draft](docs/shipaton/DEVPOST-DRAFT.md) is prepared for review.
+The demo video was created separately and uploaded by the owner; final submission
+requires the owner's approval. This repository uses the
 [MIT license](LICENSE); dependencies retain their own licenses.
 
 ## Infrastructure
