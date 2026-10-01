@@ -74,9 +74,9 @@ vinext, Vite, Swift Package Manager.
 
 - Category: **Next Gen Award**.
 - RevenueCat project ID: `0a055dbe`.
-- Repository: intended repository `https://github.com/ryoyamag51/corkwill_log`;
-  public visibility, submitted branch, and the visible MIT license must be
-  verified after owner approval. Do not submit an inaccessible branch URL.
+- Repository: [public Shipaton submission branch](https://github.com/ryoyamag51/corkwill_log/tree/codex/shipaton-next-gen).
+  The `codex/shipaton-next-gen` branch is the repository default, and GitHub
+  recognizes the visible MIT license.
 - Demo video: insert the approved, publicly visible YouTube/Vimeo URL, under two
   minutes, showing this iOS build. Local video: `assets/demo-next-gen.mp4`
   (97 seconds; 1920 × 1080; English explanation).
@@ -91,5 +91,7 @@ vinext, Vite, Swift Package Manager.
   owner's country answer and consent before completing it.
 - Testing instructions: use `REVIEW.md`.
 
-**Owner approval is required before any external publication or final submission.**
-This text is a local draft; it has not been entered or submitted on Devpost.
+**The GitHub repository was made public with owner approval on September 30,
+2026. Public video release and final Devpost submission remain subject to the
+owner's separate approval.**
+This text is a draft; it has not been entered or submitted on Devpost.
