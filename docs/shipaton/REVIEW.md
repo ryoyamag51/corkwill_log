@@ -125,12 +125,12 @@ app and RevenueCat-powered purchase functionality. The official rules do not
 explicitly guarantee acceptance of every Test Store-only implementation; the
 submission must accurately disclose this build's testing-only status.
 
-Before final submission, the owner must approve repository publication and the
-public demo video, complete hackathon registration, and approve the final entry
-and its rules. The signed-in Devpost account was visually confirmed to use the
-entrant's UW student email on September 19. Hackathon registration is still
-pending: its form requires a country selection and explicit agreement to the
-Official Rules and Devpost Terms of Service.
+Before final submission, the owner must publish the public demo video, complete
+hackathon registration, and approve the final entry and its rules. The signed-in
+Devpost account was visually confirmed to use the entrant's UW student email on
+September 19. Hackathon registration is still pending: its form requires a
+country selection and explicit agreement to the Official Rules and Devpost Terms
+of Service.
 
 Prepared local materials:
 
@@ -144,8 +144,9 @@ Prepared local materials:
 The video uses the actual iOS Simulator build and fictional data. Its restore
 section holds an actual screenshot of the successful restore for readability.
 No production records, Mac desktop, personal tabs, or real payment appear.
-The repository remains private; the video has not been uploaded or published;
-the entry has not been submitted. The submission deadline shown by Devpost is
+The repository was made public on September 30, 2026, with the Shipaton branch
+set as default. The video has not been uploaded or published; the entry has not
+been submitted. The submission deadline shown by Devpost is
 September 30, 2026 at 11:45 p.m. PDT.
 
 Sources checked September 19, 2026:
