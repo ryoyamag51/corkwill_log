@@ -22,7 +22,7 @@ card details, recurring subscription, or App Store launch is involved. The video
 uses fictional review records on the iOS Simulator and is edited for time. The
 restore section holds a screenshot captured after a successful native restore.
 
-Source and review instructions: [insert the approved public submission-branch URL]
+Source and review instructions: https://github.com/ryoyamag51/corkwill_log/tree/codex/shipaton-next-gen
 
 Built with TypeScript, React, vinext, Capacitor, RevenueCat, Cloudflare Workers,
 and D1. AI-assisted coding and research were used under the entrant's direction.
